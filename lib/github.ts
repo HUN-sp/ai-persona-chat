@@ -13,8 +13,9 @@ function isSourceFile(path: string): boolean {
 }
 
 function getHeaders() {
+  const token = process.env.GITHUB_TOKEN || process.env.YOUR_TOKEN;
   return {
-    Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+    Authorization: `Bearer ${token}`,
     Accept: "application/vnd.github+json",
   };
 }

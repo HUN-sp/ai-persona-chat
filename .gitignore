@@ -42,3 +42,5 @@ next-env.d.ts
 
 # auth scripts (contain credentials)
 /scripts/
+
+# pre-built RAG index is committed to git (see data/index.json)

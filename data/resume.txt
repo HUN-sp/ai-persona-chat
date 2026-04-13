@@ -47,10 +47,16 @@ Analyzes and visualizes digital blood report data with automated reference range
 Tradeoffs: Focused on correctness and usability over performance.
 
 Other Projects
-Flipkart Clone (JavaScript) — frontend e-commerce clone
+Flipkart Clone (JavaScript) — frontend e-commerce clone. GitHub: https://github.com/HUN-sp/flipkart-clone
 ATM, ParkingLot, SnakeAndLadder (Java) — Low Level Design practice projects
 Book-Author Relation (Java, Spring Boot) — Spring Boot relational data project
 Microservices Egov (Java) — microservices architecture project
+Music Player (JavaScript) — a browser-based music player. GitHub: https://github.com/HUN-sp/Music_Player
+My First Website (HTML) — my very first web project, built when learning HTML. GitHub: https://github.com/HUN-sp/My-_First-_Website
+Python Price Scraper (Python) — forked tool that fetches product name and price from Amazon and Flipkart using URLs. GitHub: https://github.com/HUN-sp/Python-Price-Scrapper
+Scaler (HTML) — coursework/practice repo from Scaler School of Technology. GitHub: https://github.com/HUN-sp/Scaler
+GRASS GIS fork (C) — forked OSGeo/grass for open source contributions. GitHub: https://github.com/HUN-sp/grass
+AI Persona Chat (TypeScript, Next.js) — full-stack AI persona chatbot built for the Scaler screening assignment. RAG-grounded over resume and GitHub using Cohere embeddings. Voice agent via Vapi. Google Calendar booking integration. GitHub: https://github.com/HUN-sp/ai-persona-chat
 
 OPEN SOURCE CONTRIBUTIONS
 OSGeo GRASS GIS (Google Summer of Code repository)

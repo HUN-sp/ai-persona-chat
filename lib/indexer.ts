@@ -1,4 +1,6 @@
 import { CohereClient } from "cohere-ai";
+import { readFileSync, existsSync } from "fs";
+import { join } from "path";
 import { fetchGitHubChunks, CodeChunk } from "./github";
 import { fetchResumeChunks, ResumeChunk } from "./resume";
 
@@ -18,6 +20,22 @@ export interface IndexedChunk {
 // Use globalThis so the cache survives Next.js hot reloads in dev mode
 const g = globalThis as typeof globalThis & { __ragIndex?: IndexedChunk[] };
 
+const INDEX_PATH = join(process.cwd(), "data", "index.json");
+
+function loadPrebuiltIndex(): IndexedChunk[] | null {
+  try {
+    if (existsSync(INDEX_PATH)) {
+      console.log("Loading pre-built RAG index from data/index.json...");
+      const raw = readFileSync(INDEX_PATH, "utf-8");
+      const index = JSON.parse(raw) as IndexedChunk[];
+      console.log(`Loaded ${index.length} chunks from pre-built index.`);
+      return index;
+    }
+  } catch (e) {
+    console.error("Failed to load pre-built index, will build dynamically:", e);
+  }
+  return null;
+}
 
 function chunkToText(chunk: CodeChunk | ResumeChunk): string {
   if (chunk.source === "github") {
@@ -41,7 +59,14 @@ async function embedBatch(texts: string[]): Promise<number[][]> {
 export async function buildIndex(): Promise<IndexedChunk[]> {
   if (g.__ragIndex) return g.__ragIndex;
 
-  console.log("Building RAG index...");
+  // Try loading pre-built index first (used on Vercel where globalThis doesn't persist)
+  const prebuilt = loadPrebuiltIndex();
+  if (prebuilt) {
+    g.__ragIndex = prebuilt;
+    return g.__ragIndex;
+  }
+
+  console.log("Building RAG index dynamically...");
 
   const [githubChunks, resumeChunks] = await Promise.all([
     fetchGitHubChunks(),

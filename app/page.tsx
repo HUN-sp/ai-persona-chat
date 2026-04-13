@@ -28,8 +28,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [showCalendly, setShowCalendly] = useState(false);
   const [bookingStep, setBookingStep] = useState<"idle" | "slots_shown" | "awaiting_email">("idle");
-  const [pendingSlots, setPendingSlots] = useState<{ start: string; end: string; uri: string }[] | null>(null);
-  const [selectedSlot, setSelectedSlot] = useState<{ start: string; end: string; uri: string } | null>(null);
+  const [pendingSlots, setPendingSlots] = useState<{ start: string; end: string }[] | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<{ start: string; end: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

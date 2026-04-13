@@ -41,7 +41,6 @@ export async function POST(req: Request) {
       const slot: Slot = slots.find((s) => s.start === slotTime) ?? {
         start: slotTime,
         end: new Date(new Date(slotTime).getTime() + 30 * 60000).toISOString(),
-        uri: "",
       };
 
       const result = await createBooking(callerName, email, slot);

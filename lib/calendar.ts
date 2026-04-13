@@ -1,86 +1,91 @@
+import { google } from "googleapis";
+
 export interface Slot {
   start: string;
   end: string;
-  uri: string; // Calendly event type URI - needed for booking
 }
 
-const CALENDLY_BASE = "https://api.calendly.com";
-
-function headers() {
-  return {
-    Authorization: `Bearer ${process.env.CALENDLY_API_KEY}`,
-    "Content-Type": "application/json",
-  };
-}
-
-// Cache user + event type URIs so we don't fetch them on every request
-let cachedUserUri: string | null = null;
-let cachedEventTypeUri: string | null = null;
-
-async function getUserUri(): Promise<string | null> {
-  if (cachedUserUri) return cachedUserUri;
-  const res = await fetch(`${CALENDLY_BASE}/users/me`, { headers: headers() });
-  if (!res.ok) {
-    console.error("Calendly /users/me error:", res.status, await res.text());
-    return null;
-  }
-  const data = await res.json();
-  cachedUserUri = data?.resource?.uri ?? null;
-  console.log("Calendly user URI:", cachedUserUri);
-  return cachedUserUri;
-}
-
-async function getEventTypeUri(): Promise<string | null> {
-  if (cachedEventTypeUri) return cachedEventTypeUri;
-  const userUri = await getUserUri();
-  if (!userUri) return null;
-
-  const res = await fetch(
-    `${CALENDLY_BASE}/event_types?user=${encodeURIComponent(userUri)}&active=true`,
-    { headers: headers() }
+function getAuth() {
+  const oAuth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    "http://localhost"
   );
-  if (!res.ok) {
-    console.error("Calendly event_types error:", res.status, await res.text());
-    return null;
-  }
-  const data = await res.json();
-  const types = data?.collection ?? [];
-  console.log("Calendly event types:", types.map((t: { name: string; uri: string }) => t.name));
+  oAuth2Client.setCredentials({
+    refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+  });
+  return oAuth2Client;
+}
 
-  // Prefer 30-min type
-  const thirty = types.find((t: { name: string }) =>
-    t.name.toLowerCase().includes("30")
-  );
-  cachedEventTypeUri = (thirty ?? types[0])?.uri ?? null;
-  console.log("Using event type URI:", cachedEventTypeUri);
-  return cachedEventTypeUri;
+// Generate 30-min slots between 9am-6pm IST on weekdays
+function generateSlots(startDate: Date, endDate: Date): { start: Date; end: Date }[] {
+  const slots = [];
+  const current = new Date(startDate);
+
+  while (current < endDate) {
+    const day = current.getDay(); // 0=Sun, 6=Sat
+    if (day !== 0 && day !== 6) {
+      // Working hours: 9am to 6pm IST (UTC+5:30 = UTC+330min)
+      for (let hour = 9; hour < 18; hour++) {
+        for (const min of [0, 30]) {
+          const slotStart = new Date(current);
+          // Set to IST time by adjusting
+          slotStart.setUTCHours(hour - 5, min - 30, 0, 0);
+          if (slotStart.getUTCMinutes() < 0) {
+            slotStart.setUTCHours(slotStart.getUTCHours() - 1, 30, 0, 0);
+          }
+          const slotEnd = new Date(slotStart.getTime() + 30 * 60000);
+          if (slotStart > new Date()) {
+            slots.push({ start: slotStart, end: slotEnd });
+          }
+        }
+      }
+    }
+    current.setDate(current.getDate() + 1);
+  }
+  return slots;
 }
 
 export async function getAvailableSlots(): Promise<Slot[]> {
-  const eventTypeUri = await getEventTypeUri();
-  if (!eventTypeUri) return [];
+  try {
+    const auth = getAuth();
+    const calendar = google.calendar({ version: "v3", auth });
 
-  const start = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour from now
-  const end = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const now = new Date();
+    const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-  const res = await fetch(
-    `${CALENDLY_BASE}/event_type_available_times?event_type=${encodeURIComponent(eventTypeUri)}&start_time=${start}&end_time=${end}`,
-    { headers: headers() }
-  );
-  if (!res.ok) {
-    console.error("Calendly available_times error:", res.status, await res.text());
+    // Check free/busy on primary calendar
+    const freeBusy = await calendar.freebusy.query({
+      requestBody: {
+        timeMin: now.toISOString(),
+        timeMax: nextWeek.toISOString(),
+        timeZone: "Asia/Kolkata",
+        items: [{ id: "primary" }],
+      },
+    });
+
+    const busySlots = freeBusy.data.calendars?.primary?.busy ?? [];
+
+    // Generate all possible 30-min slots
+    const allSlots = generateSlots(now, nextWeek);
+
+    // Filter out busy ones
+    const freeSlots = allSlots.filter((slot) => {
+      return !busySlots.some((busy) => {
+        const busyStart = new Date(busy.start!).getTime();
+        const busyEnd = new Date(busy.end!).getTime();
+        return slot.start.getTime() < busyEnd && slot.end.getTime() > busyStart;
+      });
+    });
+
+    return freeSlots.slice(0, 6).map((s) => ({
+      start: s.start.toISOString(),
+      end: s.end.toISOString(),
+    }));
+  } catch (e) {
+    console.error("Google Calendar getAvailableSlots error:", e);
     return [];
   }
-
-  const data = await res.json();
-  console.log("Calendly available times count:", data?.collection?.length ?? 0);
-
-  const times = data?.collection ?? [];
-  return times.slice(0, 6).map((t: { start_time: string }) => ({
-    start: t.start_time,
-    end: new Date(new Date(t.start_time).getTime() + 30 * 60000).toISOString(),
-    uri: eventTypeUri,
-  }));
 }
 
 export async function createBooking(
@@ -88,39 +93,47 @@ export async function createBooking(
   email: string,
   slot: Slot
 ): Promise<{ success: boolean; message: string }> {
-  const eventTypeUri = await getEventTypeUri();
-  if (!eventTypeUri) return { success: false, message: "Could not find event type." };
+  try {
+    const auth = getAuth();
+    const calendar = google.calendar({ version: "v3", auth });
 
-  // Calendly v2: create a booking for an invitee
-  const res = await fetch(`${CALENDLY_BASE}/scheduled_events`, {
-    method: "POST",
-    headers: headers(),
-    body: JSON.stringify({
-      event_type: eventTypeUri,
-      start_time: slot.start,
-      invitees: [{ email, name }],
-    }),
-  });
+    await calendar.events.insert({
+      calendarId: "primary",
+      sendUpdates: "all", // sends confirmation email to attendee
+      requestBody: {
+        summary: `Interview with ${name}`,
+        description: `30-minute interview call with ${name} (${email}) and Vinay Kumar Chopra`,
+        start: {
+          dateTime: slot.start,
+          timeZone: "Asia/Kolkata",
+        },
+        end: {
+          dateTime: slot.end,
+          timeZone: "Asia/Kolkata",
+        },
+        attendees: [
+          { email: "chopravinaykumarchopra@gmail.com", displayName: "Vinay Kumar Chopra" },
+          { email, displayName: name },
+        ],
+        conferenceData: {
+          createRequest: {
+            requestId: `meet-${Date.now()}`,
+            conferenceSolutionKey: { type: "hangoutsMeet" },
+          },
+        },
+      },
+      conferenceDataVersion: 1,
+    });
 
-  const text = await res.text();
-  console.log("Calendly create booking response:", res.status, text.slice(0, 500));
-
-  if (!res.ok) {
-    // Calendly API doesn't support direct booking creation on free plans
-    // Fall back to pre-filled scheduling link
-    const date = new Date(slot.start);
-    const dateStr = date.toISOString().split("T")[0];
-    const prefilledUrl = `https://calendly.com/chopravinaykumarchopra/30min?date=${dateStr}&name=${encodeURIComponent(name)}&email=${encodeURIComponent(email)}`;
     return {
       success: true,
-      message: `Your details are ready! Click to confirm your booking:\n\n**[Confirm ${date.toLocaleDateString("en-IN", { weekday: "long", month: "short", day: "numeric" })} at ${date.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })} IST →](${prefilledUrl})**\n\nCalendly will send a confirmation email to ${email} once you confirm.`,
+      message: `✅ Booked! A calendar invite has been sent to ${email} with a Google Meet link.`,
     };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("Google Calendar createBooking error:", msg);
+    return { success: false, message: `Booking failed: ${msg}` };
   }
-
-  return {
-    success: true,
-    message: `✅ Booked! Confirmation sent to ${email}.`,
-  };
 }
 
 export function formatSlots(slots: Slot[]): string {

@@ -26,7 +26,8 @@ export default function Home() {
   }]);
   const [input, setInput]               = useState("");
   const [loading, setLoading]           = useState(false);
-  const [bookingStep, setBookingStep]   = useState<"idle" | "slots_shown" | "awaiting_email">("idle");
+  const [bookingStep, setBookingStep]   = useState<"idle" | "day_shown" | "slots_shown" | "awaiting_email">("idle");
+  const [allSlots, setAllSlots]         = useState<{ start: string; end: string }[] | null>(null);
   const [pendingSlots, setPendingSlots] = useState<{ start: string; end: string }[] | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<{ start: string; end: string } | null>(null);
   const [slotPage, setSlotPage]         = useState(0);
@@ -105,7 +106,7 @@ export default function Home() {
       const res  = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: newMessages, bookingStep, pendingSlots, selectedSlot, slotPage }),
+        body: JSON.stringify({ messages: newMessages, bookingStep, allSlots, pendingSlots, selectedSlot, slotPage }),
       });
       const data = await res.json();
       if (data.error) {
@@ -113,6 +114,7 @@ export default function Home() {
       } else {
         setMessages((p) => [...p, { role: "assistant", content: data.reply }]);
         if (data.bookingStep  !== undefined) setBookingStep(data.bookingStep);
+        if (data.allSlots     !== undefined) setAllSlots(data.allSlots);
         if (data.pendingSlots !== undefined) setPendingSlots(data.pendingSlots);
         if (data.selectedSlot !== undefined) setSelectedSlot(data.selectedSlot);
         if (data.slotPage     !== undefined) setSlotPage(data.slotPage);

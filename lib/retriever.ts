@@ -1,7 +1,7 @@
 import { CohereClient } from "cohere-ai";
 import { buildIndex, IndexedChunk } from "./indexer";
 
-const cohere = new CohereClient({ token: process.env.COHERE_API_KEY });
+const cohere = new CohereClient({ token: process.env.COHERE_API_KEY ?? process.env.CO_API_KEY });
 
 function cosineSimilarity(a: number[], b: number[]): number {
   let dot = 0, normA = 0, normB = 0;

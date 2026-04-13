@@ -31,7 +31,7 @@ NEVER fake bookings.
 
 Contact: vinay.23bcs10174@sst.scaler.com | +91-8822091421 | github.com/HUN-sp`;
 
-type BookingStep = "idle" | "slots_shown" | "awaiting_email";
+type BookingStep = "idle" | "day_shown" | "slots_shown" | "awaiting_email";
 const PAGE_SIZE = 5;
 
 // Format a page of slots numbered 1–N
@@ -126,20 +126,23 @@ function parseTime(message: string): { hour: number; minute: number } | null {
 // Parses "15 April", "April 15", "15th April", "April 15th" → Date
 function parseDateFromText(message: string): Date | null {
   const lower = message.toLowerCase();
-  const months = [
-    "january","february","march","april","may","june",
-    "july","august","september","october","november","december",
+  // Each entry: [full, ...abbreviations]
+  const monthAliases = [
+    ["january", "jan"], ["february", "feb"], ["march", "mar"],
+    ["april", "apr"], ["may"], ["june", "jun"],
+    ["july", "jul"], ["august", "aug"], ["september", "sep", "sept"],
+    ["october", "oct"], ["november", "nov"], ["december", "dec"],
   ];
-  for (let mi = 0; mi < months.length; mi++) {
-    const m = months[mi];
-    if (!lower.includes(m)) continue;
-    // "15 April" or "15th April"
+  for (let mi = 0; mi < monthAliases.length; mi++) {
+    const m = monthAliases[mi].find(alias => lower.includes(alias));
+    if (!m) continue;
+    // "15 Apr" or "15th April"
     const before = new RegExp(`(\\d{1,2})(?:st|nd|rd|th)?\\s+${m}`).exec(lower);
     if (before) {
       const day = parseInt(before[1]);
       return new Date(new Date().getFullYear(), mi, day);
     }
-    // "April 15" or "April 15th"
+    // "Apr 15" or "April 15th"
     const after = new RegExp(`${m}\\s+(\\d{1,2})(?:st|nd|rd|th)?`).exec(lower);
     if (after) {
       const day = parseInt(after[1]);
@@ -160,6 +163,78 @@ function slotTimeLabel(s: Slot): string {
   return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"} IST`;
 }
 
+function slotWeekday(s: Slot): string {
+  return new Date(s.start).toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
+}
+
+// Groups slots by calendar date and returns an ordered list of unique days
+function getUniqueDays(slots: Slot[]): { dateStr: string; label: string; slots: Slot[] }[] {
+  const map = new Map<string, { label: string; slots: Slot[] }>();
+  for (const slot of slots) {
+    const d = new Date(slot.start);
+    const dateStr = d.toDateString();
+    if (!map.has(dateStr)) {
+      map.set(dateStr, {
+        label: d.toLocaleDateString("en-IN", { weekday: "long", month: "short", day: "numeric" }),
+        slots: [],
+      });
+    }
+    map.get(dateStr)!.slots.push(slot);
+  }
+  return Array.from(map.entries()).map(([dateStr, v]) => ({ dateStr, ...v }));
+}
+
+// Shows each available day with its slot count, numbered for easy selection
+function formatDaySummary(slots: Slot[]): string {
+  return getUniqueDays(slots)
+    .map((d, i) => `${i + 1}. ${d.label} — ${d.slots.length} slot${d.slots.length > 1 ? "s" : ""}`)
+    .join("\n");
+}
+
+// Lists all time slots for a specific day, numbered 1-N
+function formatDaySlots(slots: Slot[]): string {
+  return slots.map((s, i) => `${i + 1}. ${slotTimeLabel(s)}`).join("\n");
+}
+
+// Detects which day the user picked from the day-summary screen
+function detectDayChoice(message: string, allSlots: Slot[]): { daySlots: Slot[]; dayLabel: string } | null {
+  const lower = message.toLowerCase();
+  const days = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"];
+  const uniqueDays = getUniqueDays(allSlots);
+
+  // Number pick (1–N days)
+  const numMatch = lower.match(/\b(\d{1,2})\b/);
+  if (numMatch) {
+    const idx = parseInt(numMatch[1]) - 1;
+    if (uniqueDays[idx]) return { daySlots: uniqueDays[idx].slots, dayLabel: uniqueDays[idx].label };
+  }
+
+  // Day name
+  for (const day of days) {
+    if (!lower.includes(day)) continue;
+    const entry = uniqueDays.find(d => slotWeekday(d.slots[0]) === day);
+    if (entry) return { daySlots: entry.slots, dayLabel: entry.label };
+  }
+
+  // today / tomorrow
+  const todayStr  = new Date().toDateString();
+  const tomorrowStr = new Date(Date.now() + 86_400_000).toDateString();
+  const rel = lower.includes("tomorrow") ? tomorrowStr : lower.includes("today") ? todayStr : null;
+  if (rel) {
+    const entry = uniqueDays.find(d => d.dateStr === rel);
+    if (entry) return { daySlots: entry.slots, dayLabel: entry.label };
+  }
+
+  // Explicit date: "14 Apr", "April 15th", etc.
+  const parsed = parseDateFromText(message);
+  if (parsed) {
+    const entry = uniqueDays.find(d => d.dateStr === parsed.toDateString());
+    if (entry) return { daySlots: entry.slots, dayLabel: entry.label };
+  }
+
+  return null;
+}
+
 type SlotDetection =
   | { type: "found"; slot: Slot }
   | { type: "ambiguous_day"; daySlots: Slot[]; dayName: string }
@@ -173,10 +248,13 @@ function detectSlotChoice(message: string, slots: Slot[], pageOffset = 0): SlotD
   const IST = (5 * 60 + 30) * 60_000;
 
   // Number pick (1–N) — relative to current page
-  const numMatch = lower.match(/\b([1-9])\b/);
+  const numMatch = lower.match(/\b(\d{1,2})\b/);
   if (numMatch) {
-    const idx = parseInt(numMatch[1]) - 1 + pageOffset;
-    if (slots[idx]) return { type: "found", slot: slots[idx] };
+    const num = parseInt(numMatch[1]);
+    if (num >= 1) {
+      const idx = num - 1 + pageOffset;
+      if (slots[idx]) return { type: "found", slot: slots[idx] };
+    }
   }
 
   const parsedTime = parseTime(message);
@@ -264,9 +342,10 @@ function extractName(message: string, email: string): string {
 
 export async function POST(req: Request) {
   try {
-    const { messages, bookingStep, pendingSlots, selectedSlot, slotPage = 0 } = await req.json() as {
+    const { messages, bookingStep, allSlots, pendingSlots, selectedSlot, slotPage = 0 } = await req.json() as {
       messages: { role: string; content: string }[];
       bookingStep: BookingStep;
+      allSlots: Slot[] | null;
       pendingSlots: Slot[] | null;
       selectedSlot: Slot | null;
       slotPage: number;
@@ -290,70 +369,115 @@ export async function POST(req: Request) {
       if (cancelSignals.some((s) => lower.includes(s))) {
         return Response.json({
           reply: "No worries at all! Feel free to ask anything else about my background or reach out at vinay.23bcs10174@sst.scaler.com whenever you're ready.",
-          bookingStep: "idle", pendingSlots: null, selectedSlot: null, slotPage: 0,
+          bookingStep: "idle", allSlots: null, pendingSlots: null, selectedSlot: null, slotPage: 0,
         });
       }
     }
 
-    // ── STEP 1: Booking intent → fetch all slots, show first PAGE_SIZE ──
+    const DAY_NAMES = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"];
+    const NEG_WORDS = ["no", "not", "don't", "dont", "nope"];
+
+    // ── STEP 1: Booking intent → fetch all slots, show day summary ──
     if ((bookingStep === "idle" || !bookingStep) && detectBookingIntent(lastMsg)) {
       const slots = await getAvailableSlots();
       if (slots.length === 0) {
         return Response.json({
           reply: "I don't have any open slots in the next 2 weeks. Reach out directly at vinay.23bcs10174@sst.scaler.com to arrange a time.",
-          bookingStep: "idle", pendingSlots: null, selectedSlot: null, slotPage: 0,
+          bookingStep: "idle", allSlots: null, pendingSlots: null, selectedSlot: null, slotPage: 0,
         });
       }
-      const hasMore = slots.length > PAGE_SIZE;
-      const hint = hasMore
-        ? `\n\nReply with a number (1–5), day name, or **"more slots"** to see the next 5.`
-        : `\n\nWhich one works for you? Reply with the number or day name.`;
       return Response.json({
-        reply: `Here are my next available slots:\n\n${formatSlotsPage(slots, 0)}${hint}`,
-        bookingStep: "slots_shown", pendingSlots: slots, selectedSlot: null, slotPage: 0,
+        reply: `Here are the days I'm available in the next 2 weeks:\n\n${formatDaySummary(slots)}\n\nWhich day works for you? Reply with a number or day name.`,
+        bookingStep: "day_shown", allSlots: slots, pendingSlots: slots, selectedSlot: null, slotPage: 0,
       });
     }
 
-    // ── STEP 2: User picks a slot (or asks for more) ──
-    if (bookingStep === "slots_shown" && pendingSlots) {
+    // ── STEP 1.5: User picks a day ──
+    if (bookingStep === "day_shown" && pendingSlots) {
+      const lower15 = lastMsg.toLowerCase();
+      const hasNeg = NEG_WORDS.some(w => lower15.includes(w));
+      const negDay = hasNeg ? DAY_NAMES.find(d => lower15.includes(d)) : undefined;
 
-      // "More slots" request — advance to next page
-      if (detectMoreSlotsRequest(lastMsg)) {
-        const newPage = slotPage + 1;
-        const newPageSlots = pendingSlots.slice(newPage * PAGE_SIZE, (newPage + 1) * PAGE_SIZE);
-        if (newPageSlots.length === 0) {
+      // Negation + day → exclude that day from the summary
+      if (negDay) {
+        const remaining = pendingSlots.filter(s => slotWeekday(s) !== negDay);
+        if (remaining.length === 0) {
           return Response.json({
-            reply: `Those are all my available slots for the next 2 weeks. You can also reach me at vinay.23bcs10174@sst.scaler.com.\n\nHere's a reminder of the first set:\n\n${formatSlotsPage(pendingSlots, 0)}`,
-            bookingStep: "slots_shown", pendingSlots, selectedSlot: null, slotPage: 0,
+            reply: "No other days available in the next 2 weeks. Reach out at vinay.23bcs10174@sst.scaler.com.",
+            bookingStep: "idle", allSlots: null, pendingSlots: null, selectedSlot: null, slotPage: 0,
           });
         }
-        const hasMore = pendingSlots.length > (newPage + 1) * PAGE_SIZE;
-        const hint = hasMore
-          ? `\n\nReply with a number, day name, or **"more slots"** for the next 5.`
-          : `\n\nWhich one works?`;
+        const cap = negDay.charAt(0).toUpperCase() + negDay.slice(1);
         return Response.json({
-          reply: `Here are more available slots:\n\n${formatSlotsPage(pendingSlots, newPage)}${hint}`,
-          bookingStep: "slots_shown", pendingSlots, selectedSlot: null, slotPage: newPage,
+          reply: `No problem! Available days excluding ${cap}:\n\n${formatDaySummary(remaining)}\n\nWhich works?`,
+          bookingStep: "day_shown", allSlots: allSlots ?? pendingSlots, pendingSlots: remaining, selectedSlot: null, slotPage: 0,
         });
       }
 
-      const pageOffset = slotPage * PAGE_SIZE;
-      const detection = detectSlotChoice(lastMsg, pendingSlots, pageOffset);
+      // Day pick → show that day's time slots
+      const dayChoice = detectDayChoice(lastMsg, pendingSlots);
+      if (dayChoice) {
+        const { daySlots, dayLabel } = dayChoice;
+        return Response.json({
+          reply: `Here are my slots on **${dayLabel}**:\n\n${formatDaySlots(daySlots)}\n\nWhich time works?`,
+          bookingStep: "slots_shown", allSlots: allSlots ?? pendingSlots, pendingSlots: daySlots, selectedSlot: null, slotPage: 0,
+        });
+      }
+
+      // Not a day pick → answer as a regular question, then remind about booking
+      if (!isOffTopic(lastMsg)) {
+        const ctx15 = await retrieve(lastMsg, 5);
+        const sp15 = ctx15 ? `${BASE_PERSONA}\n\n---\n\nRELEVANT CONTEXT FROM RESUME & GITHUB:\n\n${ctx15}` : BASE_PERSONA;
+        const llm15 = await getClient().chat.completions.create({
+          model: "llama-3.3-70b-versatile", max_tokens: 512,
+          messages: [{ role: "system", content: sp15 }, ...messages.map(m => ({ role: m.role === "user" ? "user" as const : "assistant" as const, content: m.content }))],
+        });
+        const ans15 = llm15.choices[0]?.message?.content ?? "";
+        return Response.json({
+          reply: `${ans15}\n\n---\nWhenever you're ready to continue booking, here are the available days:\n\n${formatDaySummary(pendingSlots)}`,
+          bookingStep: "day_shown", allSlots, pendingSlots, selectedSlot: null, slotPage: 0,
+        });
+      }
+      return Response.json({
+        reply: `Which day works? Reply with a number or day name:\n\n${formatDaySummary(pendingSlots)}`,
+        bookingStep: "day_shown", allSlots, pendingSlots, selectedSlot: null, slotPage: 0,
+      });
+    }
+
+    // ── STEP 2: User picks a time slot ──
+    if (bookingStep === "slots_shown" && pendingSlots) {
+      const lower2 = lastMsg.toLowerCase();
+      const hasNeg2 = NEG_WORDS.some(w => lower2.includes(w));
+      const mentionedDay = DAY_NAMES.find(d => lower2.includes(d));
+      const backSignals = ["different day", "other day", "back", "change day", "another day"];
+      const wantsBack = backSignals.some(s => lower2.includes(s)) || (hasNeg2 && mentionedDay);
+
+      // User wants a different day → go back to day summary
+      if (wantsBack) {
+        const base = allSlots ?? await getAvailableSlots();
+        const negDay2 = hasNeg2 && mentionedDay ? mentionedDay : undefined;
+        const filtered = negDay2 ? base.filter(s => slotWeekday(s) !== negDay2) : base;
+        if (filtered.length === 0) {
+          return Response.json({
+            reply: "No other days available in the next 2 weeks. Reach out at vinay.23bcs10174@sst.scaler.com.",
+            bookingStep: "idle", allSlots: null, pendingSlots: null, selectedSlot: null, slotPage: 0,
+          });
+        }
+        const dayHint = negDay2 ? ` (excluding ${negDay2.charAt(0).toUpperCase() + negDay2.slice(1)})` : "";
+        return Response.json({
+          reply: `Here are my available days${dayHint}:\n\n${formatDaySummary(filtered)}\n\nWhich works?`,
+          bookingStep: "day_shown", allSlots: allSlots ?? base, pendingSlots: filtered, selectedSlot: null, slotPage: 0,
+        });
+      }
+
+      // Detect specific time slot (pageOffset = 0; no pagination in day view)
+      const detection = detectSlotChoice(lastMsg, pendingSlots, 0);
 
       if (detection.type === "found") {
         const readable = formatReadableSlot(new Date(detection.slot.start));
         return Response.json({
           reply: `Perfect — **${readable}** it is.\n\nPlease share your **name and email** to confirm the booking.`,
-          bookingStep: "awaiting_email", pendingSlots, selectedSlot: detection.slot, slotPage,
-        });
-      }
-
-      if (detection.type === "ambiguous_day") {
-        const cap = detection.dayName.charAt(0).toUpperCase() + detection.dayName.slice(1);
-        const opts = detection.daySlots.map((s, i) => `${i + 1}. ${slotTimeLabel(s)}`).join("\n");
-        return Response.json({
-          reply: `I have ${detection.daySlots.length} slots on ${cap}:\n\n${opts}\n\nWhich time works?`,
-          bookingStep: "slots_shown", pendingSlots: detection.daySlots, selectedSlot: null, slotPage: 0,
+          bookingStep: "awaiting_email", allSlots, pendingSlots, selectedSlot: detection.slot, slotPage: 0,
         });
       }
 
@@ -362,15 +486,28 @@ export async function POST(req: Request) {
           .map((s, i) => `${i + 1}. ${new Date(s.start).toLocaleDateString("en-IN", { weekday: "long", month: "short", day: "numeric" })}`)
           .join("\n");
         return Response.json({
-          reply: `${detection.timeLabel} IST is available on:\n\n${dayOpts}\n\nWhich day works?`,
-          bookingStep: "slots_shown", pendingSlots: detection.timeSlots, selectedSlot: null, slotPage: 0,
+          reply: `${detection.timeLabel} IST is available on:\n\n${dayOpts}\n\nWhich day?`,
+          bookingStep: "slots_shown", allSlots, pendingSlots: detection.timeSlots, selectedSlot: null, slotPage: 0,
         });
       }
 
-      // not_found
+      // not_found → if it looks like a real question, answer it and remind about slots
+      if (!isOffTopic(lastMsg)) {
+        const ctx2 = await retrieve(lastMsg, 5);
+        const sp2 = ctx2 ? `${BASE_PERSONA}\n\n---\n\nRELEVANT CONTEXT FROM RESUME & GITHUB:\n\n${ctx2}` : BASE_PERSONA;
+        const llm2 = await getClient().chat.completions.create({
+          model: "llama-3.3-70b-versatile", max_tokens: 512,
+          messages: [{ role: "system", content: sp2 }, ...messages.map(m => ({ role: m.role === "user" ? "user" as const : "assistant" as const, content: m.content }))],
+        });
+        const ans2 = llm2.choices[0]?.message?.content ?? "";
+        return Response.json({
+          reply: `${ans2}\n\n---\nWhenever you're ready to continue, here are the available times:\n\n${formatDaySlots(pendingSlots)}`,
+          bookingStep: "slots_shown", allSlots, pendingSlots, selectedSlot: null, slotPage: 0,
+        });
+      }
       return Response.json({
-        reply: `I didn't catch which slot. Reply with a number (1–${Math.min(PAGE_SIZE, pendingSlots.length - slotPage * PAGE_SIZE)}), a day name, or the date.\n\n${formatSlotsPage(pendingSlots, slotPage)}`,
-        bookingStep: "slots_shown", pendingSlots, selectedSlot: null, slotPage,
+        reply: `I didn't catch that. Here are the available slots:\n\n${formatDaySlots(pendingSlots)}\n\nReply with a number or time (e.g. "3" or "2:30 PM").`,
+        bookingStep: "slots_shown", allSlots, pendingSlots, selectedSlot: null, slotPage: 0,
       });
     }
 
@@ -378,37 +515,38 @@ export async function POST(req: Request) {
     if (bookingStep === "awaiting_email" && selectedSlot) {
       const email = extractEmail(lastMsg);
 
-      // No email yet — check if user is correcting the slot
-      if (!email && pendingSlots) {
-        const detection = detectSlotChoice(lastMsg, pendingSlots, slotPage * PAGE_SIZE);
-        if (detection.type === "found") {
-          const readable = formatReadableSlot(new Date(detection.slot.start));
-          return Response.json({
-            reply: `No problem — updated to **${readable}**.\n\nPlease share your **name and email** to confirm.`,
-            bookingStep: "awaiting_email", pendingSlots, selectedSlot: detection.slot, slotPage,
-          });
-        }
-        if (detection.type === "ambiguous_day") {
-          const cap = detection.dayName.charAt(0).toUpperCase() + detection.dayName.slice(1);
-          const opts = detection.daySlots.map((s, i) => `${i + 1}. ${slotTimeLabel(s)}`).join("\n");
-          return Response.json({
-            reply: `Which ${cap} slot?\n\n${opts}`,
-            bookingStep: "slots_shown", pendingSlots: detection.daySlots, selectedSlot: null, slotPage: 0,
-          });
-        }
-      }
-
+      // No email yet — check if correcting the slot or switching day
       if (!email) {
+        if (pendingSlots) {
+          const detection = detectSlotChoice(lastMsg, pendingSlots, 0);
+          if (detection.type === "found") {
+            const readable = formatReadableSlot(new Date(detection.slot.start));
+            return Response.json({
+              reply: `No problem — updated to **${readable}**.\n\nPlease share your **name and email** to confirm.`,
+              bookingStep: "awaiting_email", allSlots, pendingSlots, selectedSlot: detection.slot, slotPage: 0,
+            });
+          }
+        }
+        // Wants a different day
+        if (allSlots) {
+          const dayChoice = detectDayChoice(lastMsg, allSlots);
+          if (dayChoice) {
+            return Response.json({
+              reply: `Here are my slots on **${dayChoice.dayLabel}**:\n\n${formatDaySlots(dayChoice.daySlots)}\n\nWhich time works?`,
+              bookingStep: "slots_shown", allSlots, pendingSlots: dayChoice.daySlots, selectedSlot: null, slotPage: 0,
+            });
+          }
+        }
         return Response.json({
           reply: "I need your email to confirm. Could you share it?",
-          bookingStep: "awaiting_email", pendingSlots, selectedSlot, slotPage,
+          bookingStep: "awaiting_email", allSlots, pendingSlots, selectedSlot, slotPage: 0,
         });
       }
       const name = extractName(lastMsg, email);
       const result = await createBooking(name, email, selectedSlot);
       return Response.json({
         reply: result.message,
-        bookingStep: "idle", pendingSlots: null, selectedSlot: null, slotPage: 0,
+        bookingStep: "idle", allSlots: null, pendingSlots: null, selectedSlot: null, slotPage: 0,
       });
     }
 
@@ -416,7 +554,7 @@ export async function POST(req: Request) {
     if (isOffTopic(lastMsg)) {
       return Response.json({
         reply: "That's a bit outside my lane — I'm Vinay's professional AI representative, so I'm focused on his background, technical work, and availability. Is there something on that front I can help with?",
-        bookingStep: "idle", pendingSlots: null, selectedSlot: null, slotPage: 0,
+        bookingStep: "idle", allSlots: null, pendingSlots: null, selectedSlot: null, slotPage: 0,
       });
     }
 
@@ -438,7 +576,7 @@ export async function POST(req: Request) {
     });
 
     const text = response.choices[0]?.message?.content ?? "";
-    return Response.json({ reply: text, bookingStep: "idle", pendingSlots: null, selectedSlot: null, slotPage: 0 });
+    return Response.json({ reply: text, bookingStep: "idle", allSlots: null, pendingSlots: null, selectedSlot: null, slotPage: 0 });
 
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

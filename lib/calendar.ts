@@ -34,7 +34,7 @@ function generateSlots(startDate: Date, endDate: Date): { start: Date; end: Date
     const istDateMs = Date.UTC(baseYear, baseMonth, baseDay + d);
     if (new Date(istDateMs).getUTCDay() % 6 === 0) continue; // skip Sun(0) and Sat(6)
 
-    for (let hour = 9; hour < 18; hour++) {
+    for (let hour = 8; hour < 19; hour++) {
       for (const min of [0, 30]) {
         const istSlotMs = Date.UTC(baseYear, baseMonth, baseDay + d, hour, min, 0);
         const slotStart = new Date(istSlotMs - IST_OFFSET_MS);
@@ -50,7 +50,7 @@ function generateSlots(startDate: Date, endDate: Date): { start: Date; end: Date
 }
 
 // Returns up to maxSlots free slots chronologically (no day-grouping)
-export async function getAvailableSlots(maxSlots = 15): Promise<Slot[]> {
+export async function getAvailableSlots(maxSlots = 200): Promise<Slot[]> {
   try {
     const auth = getAuth();
     const calendar = google.calendar({ version: "v3", auth });

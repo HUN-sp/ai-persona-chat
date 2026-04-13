@@ -4,7 +4,7 @@ import { join } from "path";
 import { fetchGitHubChunks, CodeChunk } from "./github";
 import { fetchResumeChunks, ResumeChunk } from "./resume";
 
-const cohere = new CohereClient({ token: process.env.COHERE_API_KEY });
+const cohere = new CohereClient({ token: process.env.COHERE_API_KEY ?? process.env.CO_API_KEY });
 
 export interface IndexedChunk {
   text: string;

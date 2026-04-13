@@ -6,6 +6,7 @@ export interface Slot {
 }
 
 function getAuth() {
+  console.log("[calendar] env check — clientId:", !!process.env.GOOGLE_CLIENT_ID, "secret:", !!process.env.GOOGLE_CLIENT_SECRET, "token:", !!process.env.GOOGLE_REFRESH_TOKEN);
   const oAuth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,

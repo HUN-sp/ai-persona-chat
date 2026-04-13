@@ -2,7 +2,7 @@ import Groq from "groq-sdk";
 import { retrieve } from "@/lib/retriever";
 import { getAvailableSlots, createBooking, Slot } from "@/lib/calendar";
 
-const client = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const getClient = () => new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 const BASE_PERSONA = `You are the AI representative of Vinay Kumar Chopra — a 3rd-year CS student at BITS Pilani (via Scaler School of Technology), CGPA 8.18/10. Speak in first person as Vinay.
 
@@ -431,7 +431,7 @@ export async function POST(req: Request) {
       content: m.content,
     }));
 
-    const response = await client.chat.completions.create({
+    const response = await getClient().chat.completions.create({
       model: "llama-3.3-70b-versatile",
       max_tokens: 1024,
       messages: [{ role: "system", content: systemPrompt }, ...formattedMessages],

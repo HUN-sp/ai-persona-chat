@@ -13,11 +13,16 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
+// Minimum cosine score to even be considered — filters out truly irrelevant chunks
+const SCORE_THRESHOLD = 0.25;
+// How many candidates to pull before reranking (wider net → better recall)
+const CANDIDATE_K = 20;
+
 export async function retrieve(query: string, topK = 5): Promise<string> {
   const index = await buildIndex();
   if (index.length === 0) return "";
 
-  // Embed the query
+  // 1. Embed the query
   const response = await cohere.embed({
     texts: [query],
     model: "embed-english-v3.0",
@@ -25,16 +30,37 @@ export async function retrieve(query: string, topK = 5): Promise<string> {
   });
   const queryEmbedding = (response.embeddings as number[][])[0];
 
-  // Score all chunks
-  const scored = index.map((chunk: IndexedChunk) => ({
-    text: chunk.text,
-    score: cosineSimilarity(queryEmbedding, chunk.embedding),
-  }));
-
-  // Return top-K chunks as context string
-  return scored
+  // 2. Cosine similarity → filter by threshold → take top CANDIDATE_K
+  const candidates = index
+    .map((chunk: IndexedChunk) => ({
+      text: chunk.text,
+      score: cosineSimilarity(queryEmbedding, chunk.embedding),
+    }))
+    .filter((c) => c.score >= SCORE_THRESHOLD)
     .sort((a, b) => b.score - a.score)
-    .slice(0, topK)
-    .map((c) => c.text)
-    .join("\n\n---\n\n");
+    .slice(0, CANDIDATE_K);
+
+  if (candidates.length === 0) return "";
+
+  // 3. Rerank with Cohere cross-encoder for precise ordering
+  try {
+    const docs = candidates.map((c) => c.text);
+    const reranked = await cohere.rerank({
+      model: "rerank-english-v3.0",
+      query,
+      documents: docs,
+      topN: Math.min(topK, docs.length),
+    });
+
+    return reranked.results
+      .map((r) => docs[r.index])
+      .join("\n\n---\n\n");
+  } catch (e) {
+    // Rerank failed (rate limit, etc.) — fall back to cosine-ranked results
+    console.warn("Cohere rerank failed, falling back to cosine ranking:", e);
+    return candidates
+      .slice(0, topK)
+      .map((c) => c.text)
+      .join("\n\n---\n\n");
+  }
 }

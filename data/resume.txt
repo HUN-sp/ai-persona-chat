@@ -72,4 +72,4 @@ Open-source work shows ability to navigate large, unfamiliar codebases independe
 3rd year student already building at a level most final-year students haven't reached.
 
 AVAILABILITY
-Calendly: https://calendly.com/chopravinaykumarchopra/30min
+Bookings are handled via Google Calendar through this chat interface.

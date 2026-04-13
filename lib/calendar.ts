@@ -17,33 +17,57 @@ function getAuth() {
   return oAuth2Client;
 }
 
-// Generate 30-min slots between 9am-6pm IST on weekdays
-function generateSlots(startDate: Date, endDate: Date): { start: Date; end: Date }[] {
-  const slots = [];
-  const current = new Date(startDate);
+const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000; // 330 minutes
 
-  while (current < endDate) {
-    const day = current.getDay(); // 0=Sun, 6=Sat
-    if (day !== 0 && day !== 6) {
-      // Working hours: 9am to 6pm IST (UTC+5:30 = UTC+330min)
-      for (let hour = 9; hour < 18; hour++) {
-        for (const min of [0, 30]) {
-          const slotStart = new Date(current);
-          // Set to IST time by adjusting
-          slotStart.setUTCHours(hour - 5, min - 30, 0, 0);
-          if (slotStart.getUTCMinutes() < 0) {
-            slotStart.setUTCHours(slotStart.getUTCHours() - 1, 30, 0, 0);
-          }
-          const slotEnd = new Date(slotStart.getTime() + 30 * 60000);
-          if (slotStart > new Date()) {
-            slots.push({ start: slotStart, end: slotEnd });
-          }
+// Generate 30-min slots 9am–5:30pm IST on weekdays, correctly handling IST timezone.
+// Key insight: treat IST calendar dates as UTC for day-of-week arithmetic, then subtract
+// the IST offset to get actual UTC timestamps.
+function generateSlots(startDate: Date, endDate: Date): { start: Date; end: Date }[] {
+  const slots: { start: Date; end: Date }[] = [];
+
+  // Get the IST calendar date (year/month/day in IST) for startDate
+  const istStart = new Date(startDate.getTime() + IST_OFFSET_MS);
+  const baseYear = istStart.getUTCFullYear();
+  const baseMonth = istStart.getUTCMonth();
+  const baseDay = istStart.getUTCDate();
+
+  for (let d = 0; d <= 7; d++) {
+    // Using Date.UTC with IST calendar values: getUTCDay() returns the correct IST day-of-week
+    const istDateMs = Date.UTC(baseYear, baseMonth, baseDay + d);
+    if (new Date(istDateMs).getUTCDay() % 6 === 0) continue; // skip Sun(0) and Sat(6)
+
+    for (let hour = 9; hour < 18; hour++) {
+      for (const min of [0, 30]) {
+        // IST slot time expressed as a UTC timestamp (then shift to real UTC)
+        const istSlotMs = Date.UTC(baseYear, baseMonth, baseDay + d, hour, min, 0);
+        const slotStart = new Date(istSlotMs - IST_OFFSET_MS);
+        const slotEnd   = new Date(slotStart.getTime() + 30 * 60_000);
+
+        if (slotStart > startDate && slotStart < endDate) {
+          slots.push({ start: slotStart, end: slotEnd });
         }
       }
     }
-    current.setDate(current.getDate() + 1);
   }
   return slots;
+}
+
+// Return at most 2 slots per IST calendar day so the user sees variety across the week
+function pickVariedSlots(slots: { start: Date; end: Date }[]): { start: Date; end: Date }[] {
+  const byDay = new Map<string, { start: Date; end: Date }[]>();
+  for (const slot of slots) {
+    const ist = new Date(slot.start.getTime() + IST_OFFSET_MS);
+    const key = `${ist.getUTCFullYear()}-${ist.getUTCMonth()}-${ist.getUTCDate()}`;
+    const bucket = byDay.get(key) ?? [];
+    if (bucket.length < 2) bucket.push(slot);
+    byDay.set(key, bucket);
+  }
+  const result: { start: Date; end: Date }[] = [];
+  for (const bucket of byDay.values()) {
+    result.push(...bucket);
+    if (result.length >= 6) break;
+  }
+  return result.slice(0, 6);
 }
 
 export async function getAvailableSlots(): Promise<Slot[]> {
@@ -78,7 +102,7 @@ export async function getAvailableSlots(): Promise<Slot[]> {
       });
     });
 
-    return freeSlots.slice(0, 6).map((s) => ({
+    return pickVariedSlots(freeSlots).map((s) => ({
       start: s.start.toISOString(),
       end: s.end.toISOString(),
     }));

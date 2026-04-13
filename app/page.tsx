@@ -26,7 +26,6 @@ export default function Home() {
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showCalendly, setShowCalendly] = useState(false);
   const [bookingStep, setBookingStep] = useState<"idle" | "slots_shown" | "awaiting_email">("idle");
   const [pendingSlots, setPendingSlots] = useState<{ start: string; end: string }[] | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<{ start: string; end: string } | null>(null);
@@ -95,15 +94,15 @@ export default function Home() {
           </div>
         </div>
         <button
-          onClick={() => setShowCalendly(!showCalendly)}
-          className="text-sm bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors"
+          onClick={() => sendMessage("I'd like to book a call with Vinay")}
+          disabled={loading || bookingStep !== "idle"}
+          className="text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 rounded-lg transition-colors"
         >
-          Book a Call
+          {bookingStep !== "idle" ? "Booking in progress…" : "Book a Call"}
         </button>
       </header>
 
       <div className="flex flex-1 overflow-hidden" style={{ height: "calc(100vh - 65px)" }}>
-        {/* Chat area */}
         <div className="flex flex-col flex-1 max-w-3xl mx-auto w-full">
           {/* Messages */}
           <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
@@ -198,25 +197,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Calendly side panel */}
-        {showCalendly && (
-          <div className="w-96 border-l border-gray-800 flex flex-col">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
-              <span className="text-sm font-medium">Book a 30-min call</span>
-              <button
-                onClick={() => setShowCalendly(false)}
-                className="text-gray-400 hover:text-white text-xl leading-none"
-              >
-                ×
-              </button>
-            </div>
-            <iframe
-              src="https://calendly.com/chopravinaykumarchopra/30min"
-              className="flex-1 w-full"
-              frameBorder="0"
-            />
-          </div>
-        )}
       </div>
     </div>
   );

@@ -1,0 +1,69 @@
+VINAY KUMAR CHOPRA
+Email: vinay.23bcs10174@sst.scaler.com
+Phone: +91-8822091421
+GitHub: https://github.com/HUN-sp
+
+EDUCATION
+BITS Pilani, Bachelor of Science in Computer Science (Hons)
+Via Scaler School of Technology | Expected 2027 | CGPA: 8.18/10 | 3rd Year
+
+SKILLS
+Languages: C++, Java, Python, SQL
+Frameworks: Spring Boot, Hibernate, JPA, Flask, Django
+Tools: Git, Docker, REST APIs, Jira, Pandas, Matplotlib
+Concepts: Machine Learning, Low-Level Programming, Schema Design, Concurrency
+
+PROJECTS
+
+Market Data Publisher
+Tech: C++, TCP/UDP Sockets, Concurrency
+GitHub: https://github.com/HUN-sp/Scaler-HFT-2027
+A high-performance C++ system for low-latency market data dissemination, similar to systems used in high-frequency trading.
+Implemented concurrent TCP/UDP socket programming for real-time streaming.
+Optimized data structures and serialization to minimize latency.
+Tradeoffs: Prioritized raw speed over abstraction — minimal use of standard library containers, manual memory management in hot paths.
+
+Product Service
+Tech: Java, Spring Boot, Hibernate, JPA
+A scalable backend service for e-commerce and inventory management with full CRUD functionality.
+Improved data persistence efficiency by 40% using Hibernate and JPA.
+RESTful APIs achieved 25% faster data retrieval.
+End-to-end testing reduced post-deployment issues by 30%.
+Tradeoffs: Chose Spring Boot for rapid development and ecosystem support over a lighter framework like Javalin.
+
+Aadhar Seva Radar
+Tech: Python, Pandas, Jupyter Notebook, Data Analysis
+GitHub: https://github.com/HUN-sp/Aadhar-_Seva-_Radar
+Submitted to UIDAI Data Hackathon 2026.
+Analyzes Aadhaar enrolment vs. update datasets at the pincode level to map high-risk compliance zones.
+Identifies where mobile camps should be deployed.
+Built a Master Ledger correlating service demand vs. supply. Automated Red-Zone classification.
+Tradeoffs: Used Jupyter Notebook for fast iteration; would refactor to a pipeline for production.
+
+Blood Report Analyzer
+Tech: Python, Pandas, Matplotlib
+GitHub: https://github.com/HUN-sp/blood-report-analyzer
+Analyzes and visualizes digital blood report data with automated reference range checking and trend identification.
+Tradeoffs: Focused on correctness and usability over performance.
+
+Other Projects
+Flipkart Clone (JavaScript) — frontend e-commerce clone
+ATM, ParkingLot, SnakeAndLadder (Java) — Low Level Design practice projects
+Book-Author Relation (Java, Spring Boot) — Spring Boot relational data project
+Microservices Egov (Java) — microservices architecture project
+
+OPEN SOURCE CONTRIBUTIONS
+OSGeo GRASS GIS (Google Summer of Code repository)
+Merged PR#7097 and PR#7005 — contributing to one of the most established open-source geospatial platforms.
+
+storacha/guppy (PLDG project)
+Merged PR#195 — a Go-based Storacha client.
+
+WHY SCALER ROLE
+Hands-on experience building production-style backend systems in both C++ and Java.
+Understand low-level performance trade-offs (HFT system), API design at scale (Product Service), and data engineering (Aadhar Seva Radar).
+Open-source work shows ability to navigate large, unfamiliar codebases independently.
+3rd year student already building at a level most final-year students haven't reached.
+
+AVAILABILITY
+Calendly: https://calendly.com/chopravinaykumarchopra/30min

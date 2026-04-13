@@ -75,32 +75,94 @@ function isOffTopic(message: string): boolean {
   return offTopicPatterns.some((p) => p.test(lower));
 }
 
-function detectSlotChoice(message: string, slots: Slot[]): Slot | null {
+// Parses time from text: "9:30 am", "9:30", "10am" → { hour, minute }
+// Requires colon OR meridiem to avoid false-matches on dates like "16 Apr"
+function parseTime(message: string): { hour: number; minute: number } | null {
+  const colonMatch = message.match(/\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/i);
+  if (colonMatch) {
+    let h = parseInt(colonMatch[1]), m = parseInt(colonMatch[2]);
+    const mer = colonMatch[3]?.toLowerCase();
+    if (mer === "pm" && h !== 12) h += 12;
+    if (mer === "am" && h === 12) h = 0;
+    if (h >= 0 && h < 24 && m >= 0 && m < 60) return { hour: h, minute: m };
+  }
+  const shortMatch = message.match(/\b(\d{1,2})\s*(am|pm)\b/i);
+  if (shortMatch) {
+    let h = parseInt(shortMatch[1]);
+    const mer = shortMatch[2].toLowerCase();
+    if (mer === "pm" && h !== 12) h += 12;
+    if (mer === "am" && h === 12) h = 0;
+    if (h >= 0 && h < 24) return { hour: h, minute: 0 };
+  }
+  return null;
+}
+
+// Format a slot start Date as readable IST string
+function formatReadableSlot(d: Date): string {
+  return `${d.toLocaleDateString("en-IN", { weekday: "long", month: "short", day: "numeric" })} at ${d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })} IST`;
+}
+
+// Format time options for an ambiguous day (e.g. "9:00 AM" or "9:30 AM")
+function formatTimeOptions(slots: Slot[]): string {
+  const IST = (5 * 60 + 30) * 60_000;
+  return slots.map((s) => {
+    const ist = new Date(new Date(s.start).getTime() + IST);
+    const h = ist.getUTCHours(), m = ist.getUTCMinutes();
+    return `**${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"} IST**`;
+  }).join(" or ");
+}
+
+type SlotDetection =
+  | { type: "found"; slot: Slot }
+  | { type: "ambiguous"; daySlots: Slot[]; dayName: string }
+  | { type: "not_found" };
+
+function detectSlotChoice(message: string, slots: Slot[]): SlotDetection {
   const lower = message.toLowerCase();
   const days = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"];
+  const IST = (5 * 60 + 30) * 60_000;
 
-  const numMatch = lower.match(/\b([1-6])\b/);
+  // Number pick (1–N) — always unambiguous
+  const numMatch = lower.match(/\b([1-9])\b/);
   if (numMatch) {
     const idx = parseInt(numMatch[1]) - 1;
-    if (slots[idx]) return slots[idx];
+    if (slots[idx]) return { type: "found", slot: slots[idx] };
   }
 
+  const parsedTime = parseTime(message);
+
+  // Day name match
   for (const day of days) {
-    if (lower.includes(day)) {
-      const match = slots.find((s) =>
-        new Date(s.start).toLocaleDateString("en-US", { weekday: "long" }).toLowerCase() === day
-      );
-      if (match) return match;
+    if (!lower.includes(day)) continue;
+    const daySlots = slots.filter((s) =>
+      new Date(s.start).toLocaleDateString("en-US", { weekday: "long" }).toLowerCase() === day
+    );
+    if (daySlots.length === 0) continue;
+
+    // Time also specified → try exact IST match
+    if (parsedTime) {
+      const exact = daySlots.find((s) => {
+        const ist = new Date(new Date(s.start).getTime() + IST);
+        return ist.getUTCHours() === parsedTime.hour && ist.getUTCMinutes() === parsedTime.minute;
+      });
+      if (exact) return { type: "found", slot: exact };
     }
+
+    // Only one slot that day — unambiguous
+    if (daySlots.length === 1) return { type: "found", slot: daySlots[0] };
+
+    // Multiple slots, no matching time — ask for clarification
+    return { type: "ambiguous", daySlots, dayName: day };
   }
 
+  // "today" shorthand
   if (lower.includes("today")) {
-    const today = new Date().toDateString();
-    const match = slots.find((s) => new Date(s.start).toDateString() === today);
-    if (match) return match;
+    const todaySlots = slots.filter((s) => new Date(s.start).toDateString() === new Date().toDateString());
+    if (todaySlots.length === 1) return { type: "found", slot: todaySlots[0] };
+    if (todaySlots.length > 1) return { type: "ambiguous", daySlots: todaySlots, dayName: "today" };
   }
 
-  return null;
+  return { type: "not_found" };
 }
 
 function extractEmail(message: string): string | null {
@@ -150,17 +212,27 @@ export async function POST(req: Request) {
 
     // ── STEP 2: User picks a slot → ask for name + email ──
     if (bookingStep === "slots_shown" && pendingSlots) {
-      const chosen = detectSlotChoice(lastMsg, pendingSlots);
-      if (chosen) {
-        const d = new Date(chosen.start);
-        const readable = `${d.toLocaleDateString("en-IN", { weekday: "long", month: "short", day: "numeric" })} at ${d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })} IST`;
+      const detection = detectSlotChoice(lastMsg, pendingSlots);
+
+      if (detection.type === "found") {
+        const readable = formatReadableSlot(new Date(detection.slot.start));
         return Response.json({
           reply: `Perfect — **${readable}** it is.\n\nPlease share your **name and email** to confirm the booking.`,
-          bookingStep: "awaiting_email", pendingSlots, selectedSlot: chosen,
+          bookingStep: "awaiting_email", pendingSlots, selectedSlot: detection.slot,
         });
       }
+
+      if (detection.type === "ambiguous") {
+        const cap = detection.dayName.charAt(0).toUpperCase() + detection.dayName.slice(1);
+        return Response.json({
+          reply: `I have two slots on ${cap}: ${formatTimeOptions(detection.daySlots)}. Which time works for you?`,
+          bookingStep: "slots_shown", pendingSlots, selectedSlot: null,
+        });
+      }
+
+      // not_found
       return Response.json({
-        reply: `Sorry, I didn't catch which slot. Reply with a number (1–${pendingSlots.length}) or the day name.\n\n${formatSlots(pendingSlots)}`,
+        reply: `I didn't catch which slot — reply with a number (1–${pendingSlots.length}) or the day and time.\n\n${formatSlots(pendingSlots)}`,
         bookingStep: "slots_shown", pendingSlots, selectedSlot: null,
       });
     }
@@ -168,6 +240,26 @@ export async function POST(req: Request) {
     // ── STEP 3: Name + email received → create real booking ──
     if (bookingStep === "awaiting_email" && selectedSlot) {
       const email = extractEmail(lastMsg);
+
+      // No email yet — check if user is correcting the slot before providing details
+      if (!email && pendingSlots) {
+        const detection = detectSlotChoice(lastMsg, pendingSlots);
+        if (detection.type === "found") {
+          const readable = formatReadableSlot(new Date(detection.slot.start));
+          return Response.json({
+            reply: `No problem — updated to **${readable}**.\n\nPlease share your **name and email** to confirm.`,
+            bookingStep: "awaiting_email", pendingSlots, selectedSlot: detection.slot,
+          });
+        }
+        if (detection.type === "ambiguous") {
+          const cap = detection.dayName.charAt(0).toUpperCase() + detection.dayName.slice(1);
+          return Response.json({
+            reply: `Which ${cap} slot — ${formatTimeOptions(detection.daySlots)}?`,
+            bookingStep: "slots_shown", pendingSlots, selectedSlot: null,
+          });
+        }
+      }
+
       if (!email) {
         return Response.json({
           reply: "I need your email to confirm. Could you share it?",

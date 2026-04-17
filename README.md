@@ -2,7 +2,7 @@
 
 An interactive AI persona built as part of the Scaler School of Technology screening assignment. It lets anyone chat with or call an AI version of Vinay, ask about his background and projects, and book a real interview slot on his Google Calendar.
 
-Live demo: https://meticulous-nature-production-cc87.up.railway.app
+Live demo: https://aipersonachat.vercel.app
 
 ---
 

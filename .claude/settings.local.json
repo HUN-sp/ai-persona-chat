@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mv .env.local .env.local.bak)",
+      "Bash(npm run:*)",
+      "Bash(mv .env.local.bak .env.local)"
+    ]
+  }
+}

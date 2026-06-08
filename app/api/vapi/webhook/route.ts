@@ -181,6 +181,19 @@ async function handleToolCall(name: string, parameters: Record<string, string>):
   return "Unknown tool — please only call searchVinayBackground, getAvailableSlots, or createBooking.";
 }
 
+// ── CORS Helper ──────────────────────────────────────────────────
+function corsResponse(res: Response): Response {
+  const newHeaders = new Headers(res.headers);
+  newHeaders.set("Access-Control-Allow-Origin", "*");
+  newHeaders.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+  newHeaders.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  return new Response(res.body, {
+    status: res.status,
+    statusText: res.statusText,
+    headers: newHeaders,
+  });
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -202,7 +215,7 @@ export async function POST(req: Request) {
         })
       );
 
-      return Response.json({ results });
+      return corsResponse(Response.json({ results }));
     }
 
     // ── Older Vapi format: function-call / functionCall ──
@@ -210,16 +223,16 @@ export async function POST(req: Request) {
     if (functionCall) {
       const { name, parameters } = functionCall;
       const result = await handleToolCall(name, parameters ?? {});
-      return Response.json({ result });
+      return corsResponse(Response.json({ result }));
     }
 
     // Other event types (call-start, call-end, etc.) — just acknowledge
-    return Response.json({ result: "ok" });
+    return corsResponse(Response.json({ result: "ok" }));
 
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error("Vapi webhook error:", msg);
-    return Response.json({ result: `Error: ${msg}` }, { status: 500 });
+    return corsResponse(Response.json({ result: `Error: ${msg}` }, { status: 500 }));
   }
 }
 

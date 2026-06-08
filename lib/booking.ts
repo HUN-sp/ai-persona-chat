@@ -130,9 +130,9 @@ function parseDateFromText(message: string): Date | null {
   for (let mi = 0; mi < monthAliases.length; mi++) {
     const m = monthAliases[mi].find((alias) => lower.includes(alias));
     if (!m) continue;
-    const before = new RegExp(`(\\d{1,2})(?:st|nd|rd|th)?\\s+${m}`).exec(lower);
+    const before = new RegExp(`(\\d{1,2})(?:st|nd|rd|th)?\\s*${m}`).exec(lower);
     if (before) return new Date(new Date().getFullYear(), mi, parseInt(before[1]));
-    const after = new RegExp(`${m}\\s+(\\d{1,2})(?:st|nd|rd|th)?`).exec(lower);
+    const after = new RegExp(`${m}\\s*(\\d{1,2})(?:st|nd|rd|th)?`).exec(lower);
     if (after) return new Date(new Date().getFullYear(), mi, parseInt(after[1]));
   }
   return null;
@@ -363,9 +363,18 @@ function handleDayShown(input: BookingInput): BookingResult {
   if (!pendingSlots) return { type: "not_booking", state: idleState() };
 
   const lower = lastMsg.toLowerCase();
+  
+  // Correction check to distinguish negation from correction/selection
+  const isCorrection = /\b(mean|actually|want|book|schedule|how about|what about|change|instead|prefer|choose|pick)\b/.test(lower) || 
+                       /\b(no|nope)\b\s*,/.test(lower) ||
+                       (parseDateFromText(lastMsg) !== null) ||
+                       /^\s*\d{1,2}\s*$/.test(lower);
+
   const hasNeg = NEG_WORDS.some((w) => new RegExp(`\\b${w}\\b`).test(lower));
+  const isNegation = hasNeg && !isCorrection;
+
   let negDay: string | undefined;
-  if (hasNeg) {
+  if (isNegation) {
     for (const [alias, fullDay] of Object.entries(DAY_ALIASES)) {
       if (new RegExp(`\\b${alias}\\b`).test(lower)) {
         negDay = fullDay;
@@ -426,7 +435,16 @@ function handleSlotsShown(input: BookingInput): BookingResult {
   if (!pendingSlots) return { type: "not_booking", state: idleState() };
 
   const lower = lastMsg.toLowerCase();
+  
+  // Correction check to distinguish negation from correction/selection
+  const isCorrection = /\b(mean|actually|want|book|schedule|how about|what about|change|instead|prefer|choose|pick)\b/.test(lower) || 
+                       /\b(no|nope)\b\s*,/.test(lower) ||
+                       (parseDateFromText(lastMsg) !== null) ||
+                       /^\s*\d{1,2}\s*$/.test(lower);
+
   const hasNeg = NEG_WORDS.some((w) => new RegExp(`\\b${w}\\b`).test(lower));
+  const isNegation = hasNeg && !isCorrection;
+
   let mentionedDay: string | undefined;
   for (const [alias, fullDay] of Object.entries(DAY_ALIASES)) {
     if (new RegExp(`\\b${alias}\\b`).test(lower)) {
@@ -435,12 +453,27 @@ function handleSlotsShown(input: BookingInput): BookingResult {
     }
   }
 
+  // Switch day choice directly if the user names/specifies another available day
+  const dayChoice = detectDayChoice(lastMsg, allSlots ?? pendingSlots);
+  if (dayChoice && (!pendingSlots || !dayChoice.daySlots.every(s => pendingSlots.some(p => p.start === s.start)))) {
+    if (!isNegation) {
+      return response({
+        reply: `Here are my slots on **${dayChoice.dayLabel}**:\n\n${formatDaySlots(dayChoice.daySlots)}\n\nWhich time works?`,
+        bookingStep: "slots_shown",
+        allSlots: allSlots ?? pendingSlots,
+        pendingSlots: dayChoice.daySlots,
+        selectedSlot: null,
+        slotPage: 0,
+      });
+    }
+  }
+
   // User wants a different day → go back to day summary
   const backSignals = ["different day", "other day", "back", "change day", "another day", "go back", "show days"];
-  const wantsBack = backSignals.some((s) => lower.includes(s)) || (hasNeg && mentionedDay);
+  const wantsBack = backSignals.some((s) => lower.includes(s)) || (isNegation && mentionedDay);
   if (wantsBack) {
     const base = allSlots ?? ([] as Slot[]);
-    const negDay = hasNeg && mentionedDay ? mentionedDay : undefined;
+    const negDay = isNegation && mentionedDay ? mentionedDay : undefined;
     const filtered = negDay ? base.filter((s) => slotWeekday(s) !== negDay) : base;
     if (filtered.length === 0) {
       return response({

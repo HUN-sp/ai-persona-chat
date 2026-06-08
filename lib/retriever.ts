@@ -14,7 +14,13 @@ import { CohereClient } from "cohere-ai";
 import { buildIndex, IndexedChunk } from "./indexer";
 import { queryChunks } from "./vector-db";
 
-const cohere = new CohereClient({ token: process.env.COHERE_API_KEY ?? process.env.CO_API_KEY });
+let _cohere: CohereClient | null = null;
+function getCohereClient(): CohereClient {
+  if (!_cohere) {
+    _cohere = new CohereClient({ token: process.env.COHERE_API_KEY ?? process.env.CO_API_KEY });
+  }
+  return _cohere;
+}
 
 // ── Scoring parameters ──────────────────────────────────────────
 
@@ -35,7 +41,7 @@ function cosineSimilarity(a: number[], b: number[]): number {
 }
 
 async function embedQuery(query: string): Promise<number[]> {
-  const response = await cohere.embed({
+  const response = await getCohereClient().embed({
     texts: [query],
     model: "embed-english-v3.0",
     inputType: "search_query",
@@ -45,7 +51,7 @@ async function embedQuery(query: string): Promise<number[]> {
 
 async function rerank(query: string, docs: string[], topK: number): Promise<string[]> {
   try {
-    const reranked = await cohere.rerank({
+    const reranked = await getCohereClient().rerank({
       model: "rerank-english-v3.0",
       query,
       documents: docs,
@@ -57,6 +63,7 @@ async function rerank(query: string, docs: string[], topK: number): Promise<stri
     return docs.slice(0, topK);
   }
 }
+
 
 // ── Tier 1: Pinecone ─────────────────────────────────────────────
 

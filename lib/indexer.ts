@@ -1,10 +1,7 @@
 import { CohereClient } from "cohere-ai";
-import { readFileSync, existsSync } from "fs";
-import { join } from "path";
 import { fetchGitHubChunks, CodeChunk } from "./github";
 import { fetchResumeChunks, ResumeChunk } from "./resume";
-
-const cohere = new CohereClient({ token: process.env.COHERE_API_KEY ?? process.env.CO_API_KEY });
+import prebuiltIndex from "../data/index.json";
 
 export interface IndexedChunk {
   text: string;
@@ -20,17 +17,20 @@ export interface IndexedChunk {
 // Use globalThis so the cache survives Next.js hot reloads in dev mode
 const g = globalThis as typeof globalThis & { __ragIndex?: IndexedChunk[] };
 
-const INDEX_PATH = join(process.cwd(), "data", "index.json");
+let _cohere: CohereClient | null = null;
+function getCohereClient(): CohereClient {
+  if (!_cohere) {
+    _cohere = new CohereClient({ token: process.env.COHERE_API_KEY ?? process.env.CO_API_KEY });
+  }
+  return _cohere;
+}
 
 function loadPrebuiltIndex(): IndexedChunk[] | null {
   try {
-    if (existsSync(INDEX_PATH)) {
-      console.log("Loading pre-built RAG index from data/index.json...");
-      const raw = readFileSync(INDEX_PATH, "utf-8");
-      const index = JSON.parse(raw) as IndexedChunk[];
-      console.log(`Loaded ${index.length} chunks from pre-built index.`);
-      return index;
-    }
+    console.log("Loading statically imported pre-built RAG index...");
+    const index = prebuiltIndex as IndexedChunk[];
+    console.log(`Loaded ${index.length} chunks from pre-built index.`);
+    return index;
   } catch (e) {
     console.error("Failed to load pre-built index, will build dynamically:", e);
   }
@@ -48,13 +48,14 @@ function chunkToText(chunk: CodeChunk | ResumeChunk): string {
 }
 
 async function embedBatch(texts: string[]): Promise<number[][]> {
-  const response = await cohere.embed({
+  const response = await getCohereClient().embed({
     texts,
     model: "embed-english-v3.0",
     inputType: "search_document",
   });
   return response.embeddings as number[][];
 }
+
 
 export async function buildIndex(): Promise<IndexedChunk[]> {
   if (g.__ragIndex) return g.__ragIndex;

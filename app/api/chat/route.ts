@@ -29,6 +29,20 @@ import {
 } from "@/lib/config";
 import type { BookingStep, ChatResponse } from "@/lib/config";
 import type { Slot } from "@/lib/calendar";
+import { POST as handleVapiPost } from "../vapi/webhook/route";
+
+// ── CORS Helper ──────────────────────────────────────────────────
+function corsResponse(res: Response): Response {
+  const newHeaders = new Headers(res.headers);
+  newHeaders.set("Access-Control-Allow-Origin", "*");
+  newHeaders.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+  newHeaders.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  return new Response(res.body, {
+    status: res.status,
+    statusText: res.statusText,
+    headers: newHeaders,
+  });
+}
 
 // ── Groq client (lazy singleton) ────────────────────────────────
 
@@ -109,7 +123,28 @@ async function parseRequest(req: Request): Promise<ParsedRequest> {
 
 export async function POST(req: Request) {
   try {
-    const parsed = await parseRequest(req);
+    const reqClone = req.clone();
+    let body: any = {};
+    try {
+      body = await req.json();
+    } catch {
+      // ignore
+    }
+
+    const isVapi = body && (
+      body.message?.type === "tool-calls" ||
+      body.message?.functionCall ||
+      body.functionCall ||
+      (body.message?.type && body.message.type.startsWith("call-"))
+    );
+
+    if (isVapi) {
+      console.log("[Router] Delegating Vapi webhook call on /api/chat");
+      const vapiResponse = await handleVapiPost(reqClone);
+      return corsResponse(vapiResponse);
+    }
+
+    const parsed = await parseRequest(reqClone);
     const { lastMsg, messages } = parsed;
 
     // ── Deterministic intent classification ──
@@ -118,13 +153,13 @@ export async function POST(req: Request) {
     switch (intent) {
       // ── CANCEL: exit booking flow ──
       case "cancel": {
-        return Response.json(handleCancel());
+        return corsResponse(Response.json(handleCancel()));
       }
 
       // ── BOOKING START: fetch slots and begin flow ──
       case "booking_start": {
         const result = await handleBookingStart();
-        return Response.json(result);
+        return corsResponse(Response.json(result));
       }
 
       // ── BOOKING CONTINUE: advance the state machine ──
@@ -140,7 +175,7 @@ export async function POST(req: Request) {
 
         // Booking action was handled → return directly
         if (result.type === "response") {
-          return Response.json(result.data);
+          return corsResponse(Response.json(result.data));
         }
 
         // Message wasn't booking-related → answer via RAG, preserve booking state
@@ -148,38 +183,38 @@ export async function POST(req: Request) {
 
         // Off-topic during booking → deflect + remind about booking
         if (isOffTopic(lastMsg)) {
-          return Response.json({
+          return corsResponse(Response.json({
             reply:
               "That's outside my scope — I'm focused on my professional background.\n\n---\n" +
               getBookingReminder(state),
             ...state,
-          } satisfies ChatResponse);
+          } satisfies ChatResponse));
         }
 
         // On-topic question during booking → RAG answer + booking reminder
         const answer = await generateRagAnswer(messages, lastMsg, MAX_TOKENS_MIDFLOW);
         const reminder = getBookingReminder(state);
-        return Response.json({
+        return corsResponse(Response.json({
           reply: `${answer}\n\n---\n${reminder}`,
           ...state,
-        } satisfies ChatResponse);
+        } satisfies ChatResponse));
       }
 
       // ── OFF-TOPIC: warm deflection ──
       case "off_topic": {
-        return Response.json({
+        return corsResponse(Response.json({
           reply: "That's a bit outside my lane — I'm Vinay's professional AI representative, so I'm focused on his background, technical work, and availability. What would you like to know about my work?",
           ...idleState(),
-        } satisfies ChatResponse);
+        } satisfies ChatResponse));
       }
 
       // ── CHAT: RAG-grounded conversation (default) ──
       case "chat": {
         const answer = await generateRagAnswer(messages, lastMsg);
-        return Response.json({
+        return corsResponse(Response.json({
           reply: answer,
           ...idleState(),
-        } satisfies ChatResponse);
+        } satisfies ChatResponse));
       }
     }
   } catch (error) {
@@ -187,9 +222,22 @@ export async function POST(req: Request) {
     console.error("Chat API error:", msg);
 
     if (msg === "Invalid messages") {
-      return Response.json({ error: msg }, { status: 400 });
+      return corsResponse(Response.json({ error: msg }, { status: 400 }));
     }
 
-    return Response.json({ error: msg }, { status: 500 });
+    return corsResponse(Response.json({ error: msg }, { status: 500 }));
   }
 }
+
+export function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Max-Age": "86400",
+    },
+  });
+}
+

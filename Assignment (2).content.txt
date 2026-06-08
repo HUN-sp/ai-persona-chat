@@ -1,0 +1,56 @@
+• How  you measured   chat  groundedness:   hallucination  rate, retrieval quality 
+• How  you measured   voice  quality:  latency , accuracy , task  completion   
+Submit  a 1-page  report  covering:  
+Part C: Evals Report 
+ 
+ 
+hardcoded  answers.  
+The  persona  must  be  RAG-grounded    over  your  actual  resume  and  GitHub.  No  
+• Probe  with  edge  cases  and  it should  stay  honest,  not hallucinate  
+• Ask  about  your  availability  and  book  a call directly  from  the chat  
+• Ask  about  your  resume:  education,  experience,  projects;  accurate  and  specific  
+the purpose,  and  the tradeof fs 
+• Ask  about  any GitHub  repo  you have  built and  it should  know  the tech, 
+compelling   answer  
+• Ask  why  you are the right person  for this role  and  get a specific, 
+Deploy  a public  chat  URL.  We should  be  able  to: 
+Part B: Chat Interface 
+ 
+ 
+Stack  hints:  Vapi · Retell  · ElevenLabs   · Deepgram   · Twilio 
+• Book  a meeting  without  any human  intervention,  confirmed  end-to-end   
+• Ask  for our availability  and  propose  slots from  your  real  calendar  
+• Handle  follow-ups  and  casual  conversation   naturally , not scripted  Q&A  
+• Answer  questions  about  your  background,   skills, and  fit for this role  
+• Introduce  itself as  your  AI representative   
+Provide  a phone  number  we  can call. When  we  do, your  AI persona  should:  
+Part A: Voice Agent 
+If it works,  we'll know  you can do  the job. 
+Build an  AI persona  of yourself  that  we  can call, chat  with, and  use to book  an  interview . 
+The Ask 
+ 
+ 
+Screening Assignment  
+SCALER  
+----------------Page (0) Break----------------
+ 
+Eval report   1 page  PDF , submitted  alongside  the links 
+repo      instructions  
+Public GitHub  Clean  README,   architecture  diagram,  setup  
+without  crashing  
+Voice latency  < 2s  first response;  handles  interruptions  
+grounded    GitHub,  not hardcoded  strings 
+RAG      Chat  persona  reads  your  real  resume  and  
+booking    Calendly  / Cal.com  / Google  Calendar  
+Real calendar Actual  availability , actual  confirmation   via 
+submission   the email.  No  screenshots.   
+Live at     Voice  and  chat  must  be  live when  you send  
+Requirement  Detail 
+ 
+Hard Requirements  
+ 
+ 
+ 
+• What  you'd  improve  with  2 more  weeks  
+• 3 failure modes  you found  and  how  you fixed them  
+----------------Page (1) Break----------------

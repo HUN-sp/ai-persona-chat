@@ -65,26 +65,19 @@ function formatSlotsForVoice(slots: Slot[]): string {
   }
 
   let optNum = 1;
-  const spokenLines: string[] = [];
-  const slotRefs:    string[] = [];
+  const lines: string[] = [];
 
   for (const { label, slots: daySlots } of byDay.values()) {
-    const times = daySlots.map((s) => {
+    for (const s of daySlots) {
       const time = new Date(s.start).toLocaleTimeString("en-US", {
         hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata",
       });
-      slotRefs.push(`OPT${optNum}=${s.start}`);
-      return `Option ${optNum++} at ${time}`;
-    }).join(", ");
-
-    spokenLines.push(`${label}: ${times}`);
+      lines.push(`Option ${optNum}: ${label} at ${time} — slotTime=${s.start}`);
+      optNum++;
+    }
   }
 
-  // Two-section response — LLM reads the first, uses the second internally
-  return (
-    `READ_ALOUD_TO_CALLER:\n${spokenLines.join("\n")}\n\n` +
-    `SLOT_REFS_FOR_BOOKING_DO_NOT_SAY:\n${slotRefs.join("\n")}`
-  );
+  return lines.join("\n");
 }
 
 async function handleToolCall(name: string, parameters: Record<string, string>): Promise<string> {
@@ -114,15 +107,8 @@ async function handleToolCall(name: string, parameters: Record<string, string>):
         return "Vinay has no open slots in the 9 AM to 5 PM window in the next 2 weeks. Ask the caller to email Vinay at vinay dot 23bcs10174 at sst dot scaler dot com to arrange a custom time.";
       }
 
-      return (
-        `${formatSlotsForVoice(voiceSlots)}\n\n` +
-        `INSTRUCTIONS_DO_NOT_SAY:\n` +
-        `1. Read only the READ_ALOUD_TO_CALLER section above, option by option.\n` +
-        `2. Ask: "Which option works for you?"\n` +
-        `3. Once they choose, ask: "What is your full name and email address?"\n` +
-        `4. Call createBooking immediately using the matching OPT timestamp from SLOT_REFS_FOR_BOOKING.\n` +
-        `5. Do NOT call getAvailableSlots again under any circumstances.`
-      );
+      const slotList = formatSlotsForVoice(voiceSlots);
+      return `Here are Vinay's available slots:\n${slotList}\n\nRead each option aloud (skip the slotTime value). Ask which option they want. Then ask for their name and email. Then call createBooking with the slotTime of their chosen option.`;
     } catch (e) {
       console.error("getAvailableSlots error:", e);
       return FALLBACK_MSG;
@@ -136,12 +122,28 @@ async function handleToolCall(name: string, parameters: Record<string, string>):
       return "Missing information — I need the caller's full name, email address, and chosen slot time to complete the booking.";
     }
 
-    // Normalise spoken email: "john dot smith at gmail dot com" → "john.smith@gmail.com"
-    const email = rawEmail
-      .replace(/\s+dot\s+/gi,      ".")
-      .replace(/\s+at\s+/gi,       "@")
-      .replace(/\bthe\s+rate\b/gi, "@")
-      .replace(/\s+minus\s+/gi,    "")  // STT artifact
+    // Normalise spoken email: "vinay chopra three sixty at gmail dot com" → "vinaychopra360@gmail.com"
+    const WORD_DIGITS: Record<string, string> = {
+      zero:"0", one:"1", two:"2", three:"3", four:"4",
+      five:"5", six:"6", seven:"7", eight:"8", nine:"9",
+      ten:"10", eleven:"11", twelve:"12", thirteen:"13", fourteen:"14",
+      fifteen:"15", sixteen:"16", seventeen:"17", eighteen:"18", nineteen:"19",
+      twenty:"20", thirty:"30", forty:"40", fifty:"50", sixty:"60",
+      seventy:"70", eighty:"80", ninety:"90", hundred:"00",
+    };
+    // Replace spoken number words with digits (e.g. "three sixty" → "360")
+    const emailNormalized = rawEmail
+      .toLowerCase()
+      .replace(/\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\s+(one|two|three|four|five|six|seven|eight|nine)\b/g,
+        (_, tens, ones) => String(parseInt(WORD_DIGITS[tens]) + parseInt(WORD_DIGITS[ones])))
+      .replace(/\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred)\b/g,
+        (w) => WORD_DIGITS[w] ?? w);
+
+    const email = emailNormalized
+      .replace(/\s+dot\s+/g,       ".")
+      .replace(/\s+at\s+/g,        "@")
+      .replace(/\bthe\s+rate\b/g,  "@")
+      .replace(/\s+minus\s+/g,     "")
       .replace(/\s+/g,             "")
       .toLowerCase();
 
@@ -219,4 +221,21 @@ export async function POST(req: Request) {
     console.error("Vapi webhook error:", msg);
     return Response.json({ result: `Error: ${msg}` }, { status: 500 });
   }
+}
+
+/** Health-check — lets you verify the route is deployed: GET /api/vapi/webhook */
+export function GET() {
+  return Response.json({ status: "ok", route: "/api/vapi/webhook", timestamp: new Date().toISOString() });
+}
+
+/** CORS preflight — some Vapi configs send OPTIONS before POST */
+export function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    },
+  });
 }

@@ -32,6 +32,7 @@ export default function Home() {
   const [selectedSlot, setSelectedSlot] = useState<{ start: string; end: string } | null>(null);
   const [slotPage, setSlotPage]         = useState(0);
   const chatBottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // ── Voice call state ──
   const [callStatus, setCallStatus]     = useState<"idle" | "connecting" | "active">("idle");
@@ -42,6 +43,11 @@ export default function Home() {
 
   useEffect(() => { chatBottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
   useEffect(() => { voiceBottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [transcript]);
+  useEffect(() => {
+    if (!loading && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [loading]);
 
   // ── Voice call logic ──
   const startCall = useCallback(async () => {
@@ -291,9 +297,10 @@ export default function Home() {
           <div className="border-t border-gray-800 px-4 py-4">
             <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="flex gap-2">
               <input type="text" value={input} onChange={(e) => setInput(e.target.value)}
+                ref={inputRef}
                 placeholder="Ask about Vinay's skills, projects, or availability…"
                 className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
-                disabled={loading} />
+                disabled={loading} autoFocus />
               <button type="submit" disabled={loading || !input.trim()}
                 className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed px-5 py-3 rounded-xl transition-colors text-sm font-medium">
                 Send

@@ -6,7 +6,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { listFreeSlots, createBooking } from "./calendar";
 import { retrieve } from "./retriever";
-import { OWNER_EMAIL } from "./config";
+import { OWNER_EMAIL, OWNER_SHORT_NAME as OWNER } from "./config";
 import { parseSlotTime, snapToGrid, toSlot } from "./slots";
 import { normalizeSpokenEmail } from "./spoken-email";
 import { selectVoiceSlots, formatSlotsForVoice } from "./voice";
@@ -15,7 +15,7 @@ import { selectVoiceSlots, formatSlotsForVoice } from "./voice";
 const SPOKEN_OWNER_EMAIL = OWNER_EMAIL.replace(/@/g, " at ").replace(/\./g, " dot ");
 
 const FALLBACK_MSG =
-  `I'm having trouble connecting right now. Please ask the caller to email Vinay directly at ${SPOKEN_OWNER_EMAIL}, or try again shortly.`;
+  `I'm having trouble connecting right now. Please ask the caller to email ${OWNER} directly at ${SPOKEN_OWNER_EMAIL}, or try again shortly.`;
 
 const MAX_PARAM_CHARS = 2000;
 
@@ -112,12 +112,12 @@ export async function handleToolCall(name: string, parameters: Record<string, st
   // ── searchVinayBackground — RAG over resume + GitHub ──
   if (name === "searchVinayBackground") {
     const query = (parameters?.query ?? "").slice(0, 500);
-    if (!query) return "Please ask a specific question about Vinay.";
+    if (!query) return `Please ask a specific question about ${OWNER}.`;
     try {
       const context = await retrieve(query, 5);
       return context
         ? context
-        : `I don't have specific information about that. You can email Vinay at ${SPOKEN_OWNER_EMAIL} for more details.`;
+        : `I don't have specific information about that. You can email ${OWNER} at ${SPOKEN_OWNER_EMAIL} for more details.`;
     } catch (e) {
       console.error("searchVinayBackground error:", e instanceof Error ? e.message : "unknown");
       return FALLBACK_MSG;
@@ -131,11 +131,11 @@ export async function handleToolCall(name: string, parameters: Record<string, st
       const voiceSlots = selectVoiceSlots(allSlots);
 
       if (voiceSlots.length === 0) {
-        return `Vinay has no open slots in the 9 AM to 5 PM window in the next 2 weeks. Ask the caller to email Vinay at ${SPOKEN_OWNER_EMAIL} to arrange a custom time.`;
+        return `${OWNER} has no open slots in the 9 AM to 5 PM window in the next 2 weeks. Ask the caller to email ${OWNER} at ${SPOKEN_OWNER_EMAIL} to arrange a custom time.`;
       }
 
       const slotList = formatSlotsForVoice(voiceSlots);
-      return `Here are Vinay's available slots:\n${slotList}\n\nRead each option aloud (skip the slotTime value). Ask which option they want. Then ask for their name and email. Then call createBooking with the slotTime of their chosen option.`;
+      return `Here are ${OWNER}'s available slots:\n${slotList}\n\nRead each option aloud (skip the slotTime value). Ask which option they want. Then ask for their name and email. Then call createBooking with the slotTime of their chosen option.`;
     } catch (e) {
       console.error("getAvailableSlots error:", e instanceof Error ? e.message : "unknown");
       return FALLBACK_MSG;

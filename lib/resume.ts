@@ -7,7 +7,9 @@ export interface ResumeChunk {
   source: "resume";
 }
 
-const RESUME_PATH = path.join(process.cwd(), "data", "resume.txt");
+import { persona } from "../persona";
+
+const RESUME_PATH = path.join(process.cwd(), persona.resumePath);
 
 // Split the PROJECTS section into one chunk per project
 function splitProjectsSection(content: string): ResumeChunk[] {

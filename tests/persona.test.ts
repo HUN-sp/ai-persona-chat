@@ -66,3 +66,24 @@ describe("data-driven persona (Phase 4b)", () => {
     expect(SYSTEM_PROMPT).not.toMatch(/\{\{|\}\}/);
   });
 });
+
+describe("no persona-specific strings outside persona/ (Phase 4b)", () => {
+  it("source files do not hard-code the owner's contact data or name in user-facing code", async () => {
+    const { readdirSync, statSync } = await import("node:fs");
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const f of readdirSync(dir)) {
+        const p = join(dir, f);
+        if (statSync(p).isDirectory()) walk(p);
+        else if (/\.(ts|tsx)$/.test(f)) files.push(p);
+      }
+    };
+    for (const d of ["app", "lib"]) walk(join(process.cwd(), d));
+    const secrets = [persona.contact.phone, persona.contact.email, persona.contact.calendarAttendeeEmail, persona.contact.githubUsername];
+    const offenders = files.flatMap((f) => {
+      const src = readFileSync(f, "utf-8");
+      return secrets.filter((s) => src.includes(s)).map((s) => `${f.replace(process.cwd() + "/", "")}: ${s}`);
+    });
+    expect(offenders).toEqual([]);
+  });
+});

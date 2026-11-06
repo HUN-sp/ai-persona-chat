@@ -4,28 +4,23 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import Vapi from "@vapi-ai/web";
 import { parseSse } from "@/lib/sse";
+import { personaUi } from "@/persona/ui";
 
 // Vapi public key + assistant id are public by design (they ship to every browser).
 // Override per deployment with NEXT_PUBLIC_VAPI_PUBLIC_KEY / NEXT_PUBLIC_VAPI_ASSISTANT_ID.
-const VAPI_PUBLIC_KEY   = process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY   ?? "de0ffe0b-48dd-46b1-b342-b5747a508468";
-const VAPI_ASSISTANT_ID = process.env.NEXT_PUBLIC_VAPI_ASSISTANT_ID ?? "a080d640-6fcd-45af-948a-915eda767641";
+const VAPI_PUBLIC_KEY   = process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY   ?? personaUi.vapi.publicKey;
+const VAPI_ASSISTANT_ID = process.env.NEXT_PUBLIC_VAPI_ASSISTANT_ID ?? personaUi.vapi.assistantId;
 
 type Message = { role: "user" | "assistant"; content: string };
 type TranscriptLine = { role: "user" | "assistant"; text: string; final: boolean };
 
-const SUGGESTED_QUESTIONS = [
-  "Why are you the right person for this role?",
-  "Tell me about your Market Data Publisher project",
-  "What is your educational background?",
-  "When are you available for an interview?",
-  "What open source work have you done?",
-];
+const SUGGESTED_QUESTIONS = personaUi.suggestedQuestions;
 
 export default function Home() {
   // ── Chat state ──
   const [messages, setMessages] = useState<Message[]>([{
     role: "assistant",
-    content: "Hi! I'm Vinay Kumar Chopra's AI representative. I can answer questions about my background, skills, projects, and help you schedule a meeting. What would you like to know?",
+    content: personaUi.greeting,
   }]);
   const [input, setInput]               = useState("");
   const [loading, setLoading]           = useState(false);
@@ -204,10 +199,10 @@ export default function Home() {
       {/* ── Header ── */}
       <header className="border-b border-gray-800 px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap gap-y-2 items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center font-bold text-lg">VK</div>
+          <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center font-bold text-lg">{personaUi.initials}</div>
           <div>
-            <h1 className="font-semibold text-white">Vinay Kumar Chopra</h1>
-            <p className="text-xs text-gray-400">AI Representative · CS @ BITS Pilani</p>
+            <h1 className="font-semibold text-white">{personaUi.displayName}</h1>
+            <p className="text-xs text-gray-400">{personaUi.tagline}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -232,7 +227,7 @@ export default function Home() {
             </button>
           )}
           <button
-            onClick={() => sendMessage("I'd like to book a call with Vinay")}
+            onClick={() => sendMessage(personaUi.bookMessage)}
             disabled={loading || bookingStep !== "idle" || callStatus !== "idle"}
             className="text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 rounded-lg transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400">
             {bookingStep !== "idle" ? "Booking…" : "Book a Call"}
@@ -248,14 +243,14 @@ export default function Home() {
             <div className="flex items-center gap-3">
               {/* Animated avatar */}
               <div className={`w-12 h-12 rounded-full bg-blue-600 flex items-center justify-center font-bold text-lg relative ${isSpeaking ? "ring-2 ring-emerald-400 ring-offset-2 ring-offset-gray-950" : ""}`}>
-                VK
+                {personaUi.initials}
                 {isSpeaking && (
                   <span className="absolute inset-0 rounded-full bg-emerald-400 opacity-20 animate-ping" />
                 )}
               </div>
               <div>
                 <p className="font-semibold text-white text-sm">
-                  {callStatus === "connecting" ? "Connecting…" : isSpeaking ? "Vinay is speaking…" : "Listening…"}
+                  {callStatus === "connecting" ? "Connecting…" : isSpeaking ? `${personaUi.shortName} is speaking…` : "Listening…"}
                 </p>
                 <p className="text-xs text-gray-400">Live voice call · Google Calendar booking enabled</p>
               </div>
@@ -275,14 +270,14 @@ export default function Home() {
                   <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce [animation-delay:150ms]" />
                   <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce [animation-delay:300ms]" />
                 </div>
-                Waiting for Vinay to speak…
+                Waiting for {personaUi.shortName} to speak…
               </div>
             )}
 
             {transcript.map((line, i) => (
               <div key={i} className={`flex ${line.role === "user" ? "justify-end" : "justify-start"}`}>
                 {line.role === "assistant" && (
-                  <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold mr-2 mt-1 flex-shrink-0">VK</div>
+                  <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold mr-2 mt-1 flex-shrink-0">{personaUi.initials}</div>
                 )}
                 <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed transition-opacity
                   ${line.role === "user"
@@ -313,7 +308,7 @@ export default function Home() {
             {messages.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                 {msg.role === "assistant" && (
-                  <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold mr-2 mt-1 flex-shrink-0">VK</div>
+                  <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold mr-2 mt-1 flex-shrink-0">{personaUi.initials}</div>
                 )}
                 <div className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                   msg.role === "user"
@@ -335,8 +330,8 @@ export default function Home() {
               </div>
             ))}
             {loading && messages[messages.length - 1]?.role === "user" && (
-              <div className="flex justify-start" role="status" aria-label="Vinay is typing">
-                <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold mr-2 flex-shrink-0">VK</div>
+              <div className="flex justify-start" role="status" aria-label={`${personaUi.shortName} is typing`}>
+                <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold mr-2 flex-shrink-0">{personaUi.initials}</div>
                 <div className="bg-gray-800 rounded-2xl rounded-bl-sm px-4 py-3">
                   <div className="flex gap-1">
                     <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:0ms]" />
@@ -368,7 +363,7 @@ export default function Home() {
             <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="flex gap-2">
               <input type="text" aria-label="Message" value={input} onChange={(e) => setInput(e.target.value)}
                 ref={inputRef}
-                placeholder="Ask about Vinay's skills, projects, or availability…"
+                placeholder={personaUi.placeholder}
                 className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400"
                 disabled={loading} autoFocus maxLength={1000} />
               <button type="submit" disabled={loading || !input.trim()}

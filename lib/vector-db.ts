@@ -12,6 +12,7 @@
  */
 
 import { Pinecone } from "@pinecone-database/pinecone";
+import { persona } from "../persona";
 
 // ── Singleton client ────────────────────────────────────────────
 
@@ -26,7 +27,7 @@ function getClient(): Pinecone {
   return _client;
 }
 
-export const INDEX_NAME = "vinay-persona";
+export const INDEX_NAME = persona.pineconeIndex;
 
 // ── Types ───────────────────────────────────────────────────────
 

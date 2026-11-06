@@ -15,6 +15,7 @@
 
 import type { BookingStep } from "./config";
 import { extractEmail } from "./email";
+import { persona } from "../persona";
 
 // ── Intent type ─────────────────────────────────────────────────
 
@@ -133,7 +134,7 @@ const BOOKING_WORD_RE = /\b(?:book|booked|booking|schedule|scheduled|availabilit
 // the "Book-Author Relation" project, Facebook/notebook, a scheduler you built,
 // interview *experience*, … They never start the booking flow.
 const NOT_BOOKING_CONTEXT: RegExp[] = [
-  /\bbook[- ]author\b/,
+  ...persona.routing.notBookingContexts.map((p) => new RegExp(`\\b${p}\\b`)),
   /\b(?:interview|meeting)s? (?:experience|prep|preparation|questions?|process|skills?)\b/,
   /\bexperience (?:with|in|of) (?:interview|meeting)s?\b/,
   /\b(?:schedul(?:er|ers|ing algorithm)|book ?keeping|bookmarks?)\b/,
@@ -162,7 +163,7 @@ export function isBookingIntent(message: string): boolean {
  */
 const PROFESSIONAL_PHRASES = [
   // Identity
-  "vinay", "vinay's", "chopra", "yourself", "introduce", "about you", "who are you",
+  "yourself", "introduce", "about you", "who are you",
   // Professional
   "project", "projects", "github", "repo", "repos", "repository", "code", "coding", "skill", "skills",
   "experience", "education", "bits", "pilani", "scaler", "hire", "hiring", "role", "intern", "internship",
@@ -177,19 +178,15 @@ const PROFESSIONAL_PHRASES = [
   "java", "python", "c++", "spring", "hft", "market data", "flask", "django", "hibernate", "jpa",
   "concurrency", "socket", "sockets", "tcp", "udp", "docker", "kubernetes", "git", "api", "apis",
   "rest api", "sql", "pandas", "jupyter", "machine learning", "ml", "ai", "llm",
-  // Specific projects
-  "data publisher", "product service", "aadhar", "aadhaar", "blood report", "flipkart", "parking",
-  "atm", "snake and ladder", "music player", "microservice", "microservices", "book-author",
-  "guppy", "persona",
   // Open source
-  "open source", "open-source", "grass", "grass gis", "storacha", "pr#", "pull request", "contribution",
-  "contributions", "contributed",
+  "open source", "open-source", "pr#", "pull request", "contribution", "contributions", "contributed",
   // Contact
   "contact", "email", "phone", "reach you",
 ];
 
+// Persona-specific names (owner, project names, …) come from persona/<id>/persona.json → routing.keywords.
 const PROFESSIONAL_RE = new RegExp(
-  `(?<![a-z0-9])(?:${PROFESSIONAL_PHRASES.map(escapeRegExp).join("|")})(?![a-z0-9])`,
+  `(?<![a-z0-9])(?:${[...PROFESSIONAL_PHRASES, ...persona.routing.keywords].map((k) => escapeRegExp(k.toLowerCase())).join("|")})(?![a-z0-9])`,
 );
 // "worked at/on/with…", "work experience" – an experience question even without other keywords
 // "any disease prediction work?" / "your previous work" – "work" used as a noun about what was done

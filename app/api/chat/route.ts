@@ -19,6 +19,7 @@ import { sanitizeBookingState } from "@/lib/booking-state";
 import { parseMessages } from "@/lib/chat-input";
 import { generateRagAnswer, streamRagAnswer } from "@/lib/chat";
 import { MAX_TOKENS_MIDFLOW, idleState } from "@/lib/config";
+import { persona } from "@/persona";
 import type { ChatResponse } from "@/lib/config";
 import { clientIp, json, preflight, readJson, sseResponse, wantsStream } from "@/lib/http";
 import { LIMITS } from "@/lib/limits";
@@ -111,7 +112,7 @@ export async function POST(req: Request) {
       // ── OFF-TOPIC: warm deflection ──
       case "off_topic":
         return json(req, {
-          reply: "That's a bit outside my lane — I'm Vinay's professional AI representative, so I'm focused on his background, technical work, and availability. What would you like to know about my work?",
+          reply: `That's a bit outside my lane — I'm ${persona.owner.shortName}'s professional AI representative, so I'm focused on ${persona.owner.possessive} background, technical work, and availability. What would you like to know about my work?`,
           ...idleState(),
         } satisfies ChatResponse);
 

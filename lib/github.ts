@@ -1,4 +1,6 @@
-const GITHUB_USERNAME = "HUN-sp";
+import { persona } from "../persona";
+
+const GITHUB_USERNAME = persona.contact.githubUsername;
 const BASE_URL = "https://api.github.com";
 
 const SOURCE_EXTENSIONS = new Set([
@@ -96,7 +98,7 @@ export async function fetchGitHubChunks(): Promise<CodeChunk[]> {
   chunks.push({
     repo: "__meta__",
     filePath: "repo-list",
-    content: `[All public GitHub repositories for HUN-sp / Vinay Kumar Chopra]\n\n${repoList}`,
+    content: `[All public GitHub repositories for ${GITHUB_USERNAME} / ${persona.owner.name}]\n\n${repoList}`,
     source: "github",
   });
 

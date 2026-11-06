@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { personaUi } from "@/persona/ui";
 
 export const metadata: Metadata = {
-  title: "Vinay Kumar Chopra — AI Representative",
-  description: "Chat with Vinay's AI persona. Ask about his background, projects, and book an interview.",
+  title: personaUi.pageTitle,
+  description: personaUi.pageDescription,
 };
 
 export default function RootLayout({

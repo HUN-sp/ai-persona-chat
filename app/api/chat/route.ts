@@ -124,7 +124,7 @@ async function parseRequest(req: Request): Promise<ParsedRequest> {
 export async function POST(req: Request) {
   try {
     const reqClone = req.clone();
-    let body: any = {};
+    let body: Record<string, any> = {}; // eslint-disable-line @typescript-eslint/no-explicit-any
     try {
       body = await req.json();
     } catch {

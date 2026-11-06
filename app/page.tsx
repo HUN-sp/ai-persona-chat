@@ -235,7 +235,7 @@ export default function Home() {
 
           {/* Footer hint */}
           <div className="border-t border-gray-800 px-4 py-3 text-center text-xs text-gray-500 flex-shrink-0">
-            Speak naturally · Ask about skills, projects, availability · Say "book a meeting" to schedule
+            Speak naturally · Ask about skills, projects, availability · Say &quot;book a meeting&quot; to schedule
           </div>
         </div>
       )}

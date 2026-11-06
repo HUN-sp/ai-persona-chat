@@ -54,12 +54,13 @@ async function runTests() {
   // Test 3: Day switching on slots screen
   console.log("\nTest 3: handleSlotsShown switching to 'Thursday 18Jun' from Friday slots");
   // Find some Friday slots
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const uniqueDays = slots.reduce((acc: any[], s) => {
     const dStr = new Date(s.start).toDateString();
     if (!acc.some(a => a.dateStr === dStr)) {
       acc.push({ dateStr: dStr, slots: [s] });
     } else {
-      acc.find(a => a.dateStr === dStr).slots.push(s);
+      acc.find(a => a.dateStr === dStr)!.slots.push(s);
     }
     return acc;
   }, []);

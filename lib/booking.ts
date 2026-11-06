@@ -11,7 +11,6 @@
  */
 
 import { getAvailableSlots, createBooking, type Slot } from "./calendar";
-import { isOffTopic } from "./router";
 import type { BookingStep, BookingState, ChatResponse } from "./config";
 import { OWNER_EMAIL, idleState } from "./config";
 
@@ -100,8 +99,8 @@ function formatDaySlots(slots: Slot[]): string {
 function parseTime(message: string): { hour: number; minute: number } | null {
   const colonMatch = message.match(/\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/i);
   if (colonMatch) {
-    let h = parseInt(colonMatch[1]),
-      m = parseInt(colonMatch[2]);
+    let h = parseInt(colonMatch[1]);
+    const m = parseInt(colonMatch[2]);
     const mer = colonMatch[3]?.toLowerCase();
     if (mer === "pm" && h !== 12) h += 12;
     if (mer === "am" && h === 12) h = 0;

@@ -33,17 +33,17 @@ Status column is updated as phases complete: ☐ open · ✅ fixed · ◐ partly
 | **RAG-1** | S | ✅ | **Pinecone path has no score threshold** (the 0.25 cosine cut-off exists only for the in-memory fallback), so off-topic queries still receive 5 chunks of context in production. | `lib/retriever.ts:27, 70-88, 99-103` |
 | **RAG-2** | M | ✅ | **Pinecone index can't be populated from the repo.** `upsertChunks` has no caller and `scripts/` is gitignored, so a fresh clone cannot seed or rebuild anything (`npm run rebuild-index` points at a missing file). | `lib/vector-db.ts:62`, `package.json:10`, `.gitignore` (`/scripts/`) |
 | **HYG-1** | S | ✅ | **Lint fails** (5 errors) so no CI gate is possible. | see PROGRESS Phase 0 |
-| **HYG-2** | S | ◐ | README describes Railway (prod is Vercel), references `scripts/google-auth.mjs` / `build-index.mjs` that don't exist, documents `VAPI_PUBLIC_KEY` (the key is hard-coded in `page.tsx:7`; env var unused), omits `PINECONE_API_KEY`, and says state is "stateless client-side" as a design goal. No `.env.example`. | `README.md` |
+| **HYG-2** | S | ✅ | README describes Railway (prod is Vercel), references `scripts/google-auth.mjs` / `build-index.mjs` that don't exist, documents `VAPI_PUBLIC_KEY` (the key is hard-coded in `page.tsx:7`; env var unused), omits `PINECONE_API_KEY`, and says state is "stateless client-side" as a design goal. No `.env.example`. | `README.md` |
 
 ## P2
 
 | ID | Eff | Status | Finding | Evidence |
 |---|---|---|---|---|
-| **RAG-3** | M | ☐ | Persona facts (CGPA 8.18, PR #7097/#7005, 40 %/25 %, project list, BITS/2027) are hard-coded in `persona.ts` *and* `resume.txt` *and* the index → drift risk. Also `Expected 2027 / 3rd Year` are time-sensitive. | `lib/persona.ts:39-40` |
+| **RAG-3** | M | ✅ | Persona facts (CGPA 8.18, PR #7097/#7005, 40 %/25 %, project list, BITS/2027) are hard-coded in `persona.ts` *and* `resume.txt` *and* the index → drift risk. Also `Expected 2027 / 3rd Year` are time-sensitive. | `lib/persona.ts:39-40` |
 | **RAG-4** | M | ✅ | Retrieval query is only the last user message; follow-ups ("tell me more", "and the second one?") retrieve garbage. | `route.ts:62` |
 | **RAG-5** | S | ✅ | No `temperature` set (Groq default 1.0) for a grounded-answer bot; `max_tokens` is deprecated for `max_completion_tokens`; no timeout/retry on Groq/Cohere. | `route.ts:82-86`, groq-sdk types |
 | **RAG-6** | M | ◐ | Index quality: the PROJECTS section is one 3 KB chunk (built before `splitProjectsSection`); 59 chunks come from forks/third-party repos; repo's own source (`ai-persona-chat`, 14 chunks) can be quoted back. Needs a Cohere key to rebuild → *Needs real testing*. | `data/index.json` analysis |
-| **RAG-7** | S | ☐ | `/api/init` is public and can trigger a full GitHub+Cohere rebuild if the static import ever fails. | `app/api/init/route.ts` |
+| **RAG-7** | S | ✅ | `/api/init` is public and can trigger a full GitHub+Cohere rebuild if the static import ever fails. | `app/api/init/route.ts` (builder moved to `lib/index-builder.ts`, so this can no longer trigger a GitHub+Cohere rebuild) |
 | **BK-5** | S | ✅ | `"2:30"` (no am/pm) is not understood although `"at 14:00"` is; month-name matching is substring based (`mar`⊂`market`, `may`, `dec`⊂`decide`); date parsing uses the current year only (late-December request for January fails). Name extraction falls back to `"Guest"`. | `booking.ts:100-139, 273-281` |
 | **BK-6** | S | ✅ | Webhook parses only `toolCallList[].function.{name,arguments}`; Vapi payloads may carry `toolCalls[]` / top-level `name`+`parameters`. Unknown shapes silently return `ok`. | `webhook/route.ts:206-213` |
 | **FE-1** | M | ✅ | Accessibility: no `aria-live` on the transcript, input has no label, icon-less buttons lack focus-visible styles, voice overlay not a dialog, no `<main>`; colour contrast of `text-gray-500` on `gray-950` is borderline. | `app/page.tsx` |
@@ -52,10 +52,10 @@ Status column is updated as phases complete: ☐ open · ✅ fixed · ◐ partly
 | **FE-4** | S | ✅ | Fonts: `Geist_Mono` is loaded but unused and `globals.css` overrides body font with Arial, so Geist Sans is also dead weight. | `app/layout.tsx`, `globals.css:25` |
 | **FE-5** | S | ✅ | `NEXT_PUBLIC` config: Vapi public key + assistant id hard-coded. (Public by design, but should be env-overridable.) | `page.tsx:7-8` |
 | **PERF-1** | S | ✅ | New OAuth2 client (and token refresh round-trip) for every calendar call; no memoisation of query embeddings or retrieval results; full slot list (~170 slots ×2) echoed in every request/response. | `calendar.ts:8-18`, `retriever.ts:43-50`, `route.ts:162` |
-| **PERF-2** | S | ☐ | No tests, no CI, no automated evals; `verify-booking.ts` at repo root is type-checked by the build but needs live Google credentials. | repo root |
+| **PERF-2** | S | ✅ | No tests, no CI, no automated evals; `verify-booking.ts` at repo root is type-checked by the build but needs live Google credentials. | repo root |
 | **HYG-3** | S | ➜ | Personal / third-party files tracked in git (**owner decision**): `lib/Vinay_Resume (1).pdf` (343 KB, contains phone + email), `lib/Assignment (2).pdf`, `Assignment (2).json`, `Assignment (2).content.txt` (employer's screening assignment text), `.claude/settings.local.json`. None are imported by code. | `git ls-files` |
 | **HYG-4** | S | ➜ | Personal data hard-coded: phone `+91-8822091421` and Scaler email in `lib/config.ts:36-38` (and in `data/resume.txt`/index, so the LLM will print them to anyone); a *different* personal Gmail (`chopravinaykumarchopra@gmail.com`) hard-coded as the calendar attendee in `lib/calendar.ts:117`. | owner decision on exposure; moved to config in Phase 4 |
-| **HYG-5** | S | ☐ | `data/index.json` is 2.85 MB, committed (inlined into several server chunks). Embedding floats are stored at full precision. | `data/index.json` |
+| **HYG-5** | S | ◐ (measured, rejected – see Phase 3) | `data/index.json` is 2.85 MB, committed (inlined into several server chunks). Embedding floats are stored at full precision. | `data/index.json` |
 
 ## P3
 

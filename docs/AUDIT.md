@@ -27,8 +27,8 @@ Status column is updated as phases complete: ☐ open · ✅ fixed · ◐ partly
 | **BK-2** | S | ✅ | **Calendar failure looks like "no slots".** Any Google error (bad token, quota) is swallowed and `[]` returned, so the bot says "I don't have any open slots" – exactly EVALS failure #1. | `lib/calendar.ts:87-90`, `booking.ts:295-301` |
 | **BK-3** | S | ✅ | **Voice email normalisation gaps.** `minus` is *deleted* instead of becoming `-`; no `underscore`/`dash`/`hyphen`/`plus`/`double x`/`oh`; any number word is rewritten even inside names. Naive ISO `slotTime` (no offset) is parsed as server-local (UTC) = 5.5 h off. | `webhook/route.ts:124-148, 163` |
 | **BK-4** | S | ✅ | `selectVoiceSlots` derives the IST hour via `toLocaleTimeString(hour12:false)`, which yields `"24"` at midnight on some engines; works today only because slots are 08:00–18:30. Voice shows 09:00–17:00 only vs chat 08:00–18:30 (parity gap, undocumented). | `webhook/route.ts:26-29` |
-| **RT-1** | S | ✅ | **Router: booking false positives.** Substring `book`, `schedule`, `slot`, `meeting`, `interview`, `available` → booking flow (and a calendar call) for "Tell me about the Book-Author Relation project", "Facebook", "Jupyter Notebook", "scheduler", "interview experience". Measured: **5/10** non-booking probes misfire. | `lib/router.ts:100-117` |
-| **RT-2** | S | ✅ | **Router: off-topic guard bypassed.** On-topic keywords are substrings: `you` (matches almost everything), `api` (in "capital"), `rest` ("restaurant"), `work`, `name`, `git` … Measured: **7/10** clear off-topic probes pass as `chat` (only caught later by the LLM, costing a retrieval + Groq call). | `lib/router.ts:120-143, 172-181` |
+| **RT-1** | S | ✅ | **Router: booking false positives.** Substring `book`, `schedule`, `slot`, `meeting`, `interview`, `available` → booking flow (and a calendar call) for "Tell me about the Book-Author Relation project", "Facebook", "Jupyter Notebook", "scheduler", "interview experience". Measured: **5 of 15** on-topic probes misfire. | `lib/router.ts:100-117` |
+| **RT-2** | S | ✅ | **Router: off-topic guard bypassed.** On-topic keywords are substrings: `you` (matches almost everything), `api` (in "capital"), `rest` ("restaurant"), `work`, `name`, `git` … Measured: **7 of 11** clear off-topic probes pass as `chat` (only caught later by the LLM, costing a retrieval + Groq call). | `lib/router.ts:120-143, 172-181` |
 | **RT-3** | S | ✅ | **Router: false cancel/restart inside the booking flow.** Phrases `skip`, `i'm good` cancel the booking ("I'm good with Tuesday"); in `awaiting_email` any email containing `book`, `slot`, `meeting`… (e.g. `bookworm@gmail.com`) restarts the flow instead of booking. | `router.ts:57-60, 100-117, 215-221` |
 | **RAG-1** | S | ✅ | **Pinecone path has no score threshold** (the 0.25 cosine cut-off exists only for the in-memory fallback), so off-topic queries still receive 5 chunks of context in production. | `lib/retriever.ts:27, 70-88, 99-103` |
 | **RAG-2** | M | ✅ | **Pinecone index can't be populated from the repo.** `upsertChunks` has no caller and `scripts/` is gitignored, so a fresh clone cannot seed or rebuild anything (`npm run rebuild-index` points at a missing file). | `lib/vector-db.ts:62`, `package.json:10`, `.gitignore` (`/scripts/`) |
@@ -83,13 +83,13 @@ Method: deterministic and offline. Call counts come from mock-counting tests (`t
 |---|---|---|---|
 | Cohere calls for a *repeated* question | 2 (embed + rerank) | **0** | embedding + result cache (30 min, 200 entries) |
 | Pinecone queries for a repeated question | 1 | **0** | same cache |
-| Cohere/Groq calls for clearly off-topic messages | 3 (embed, rerank, Groq) for 7 of 10 probes | **0** for 10 of 10 | router fix (RT-2) – blocked before any API call |
-| Calendar API calls caused by non-booking messages ("Book-Author project", "Facebook"…) | OAuth refresh + freebusy for 5 of 10 probes | **0** | router fix (RT-1) |
+| Cohere/Groq calls for clearly off-topic messages | 3 (embed, rerank, Groq) for 7 of 11 off-topic probes | **0** for 11 of 11 | router fix (RT-2) – blocked before any API call |
+| Calendar API calls caused by non-booking messages ("Book-Author project", "Facebook"…) | OAuth refresh + freebusy for 5 of 15 on-topic probes | **0** | router fix (RT-1) |
 | OAuth client constructions per calendar call | 1 per call (each triggers a token refresh round-trip) | **1 per instance** | memoised client |
 | Google calls to *confirm* a booking | 1 insert (+ token refresh) | 2 (freebusy re-check + insert) | **+1 deliberately**: the double-booking guard (SEC-3) |
 | Pinecone path, off-topic query | rerank call + 5 junk chunks (~1.8k tokens) sent to Groq | **no rerank, no context** | threshold on Pinecone tier (RAG-1) |
 | History tokens sent to Groq, 40-turn chat | ≈ 5,930 and unbounded | **≈ 1,130** (16-message cap) | `parseMessages` |
-| System prompt | ≈ 1,118 tokens | ≈ 1,330 tokens | **+~210 tokens** for the SECURITY section (SEC-7) – a deliberate cost |
+| System prompt | ≈ 878 tokens (3,510 chars) | ≈ 1,118 tokens (4,472 chars) | **+~240 tokens** per request for the SECURITY section (SEC-7) – a deliberate cost |
 | Typical context per request | ≈ 1,850 tokens (5 × 1,481 chars) | unchanged | worst case 7.2k tokens when the five largest chunks win |
 | Client JS (all chunks) | 1,044,225 B | **986,993 B** (−5.5 %) | Next 16.4.5 + removed libs |
 | Static font assets | 11 woff2 = 146 KB | **0** | unused Geist fonts removed (page looks identical – CSS already forced Arial) |

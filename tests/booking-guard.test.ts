@@ -158,3 +158,21 @@ describe("createBooking server-side guard (SEC-1, SEC-2, SEC-3)", () => {
     expect((calendarState.events[0].summary ?? "").length).toBeLessThan(120);
   });
 });
+
+describe("calendar outage is not 'no availability' (BK-2)", () => {
+  it("listFreeSlots throws CalendarUnavailableError; getAvailableSlots stays backwards compatible", async () => {
+    const { listFreeSlots, getAvailableSlots, CalendarUnavailableError } = await import("@/lib/calendar");
+    calendarState.failFreebusy = true;
+    await expect(listFreeSlots()).rejects.toBeInstanceOf(CalendarUnavailableError);
+    expect(await getAvailableSlots()).toEqual([]);
+  });
+
+  it("chat booking start says the calendar is unreachable rather than 'no open slots'", async () => {
+    const { handleBookingStart } = await import("@/lib/booking");
+    calendarState.failFreebusy = true;
+    const r = await handleBookingStart();
+    expect(r.reply).toMatch(/can't reach my calendar/i);
+    expect(r.reply).not.toMatch(/don't have any open slots/i);
+    expect(r.bookingStep).toBe("idle");
+  });
+});

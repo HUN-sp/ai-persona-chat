@@ -142,3 +142,12 @@ describe("voice slot selection (BK-4)", () => {
     expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 23].map(ordinal)).toEqual(["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "23rd"]);
   });
 });
+
+describe("voice getAvailableSlots on calendar outage (BK-2)", () => {
+  it("returns the fallback message, not 'no open slots'", async () => {
+    calendarState.failFreebusy = true;
+    const r = await call("getAvailableSlots", {});
+    expect(r).toMatch(/trouble connecting/i);
+    expect(r).not.toMatch(/no open slots/i);
+  });
+});

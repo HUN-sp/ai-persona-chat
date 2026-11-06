@@ -10,7 +10,7 @@
  *                                     handle it (RAG chat) and preserve this state
  */
 
-import { getAvailableSlots, createBooking, type Slot } from "./calendar";
+import { listFreeSlots, createBooking, CalendarUnavailableError, type Slot } from "./calendar";
 import { extractEmail } from "./email";
 import type { BookingStep, BookingState, ChatResponse } from "./config";
 import { OWNER_EMAIL, idleState } from "./config";
@@ -286,7 +286,17 @@ export function handleCancel(): ChatResponse {
 
 /** Start a new booking flow → fetch slots, show day summary. */
 export async function handleBookingStart(): Promise<ChatResponse> {
-  const slots = await getAvailableSlots();
+  let slots: Slot[];
+  try {
+    slots = await listFreeSlots();
+  } catch (e) {
+    // A calendar outage must not be reported as "no availability".
+    if (!(e instanceof CalendarUnavailableError)) console.error("handleBookingStart:", e);
+    return {
+      reply: `I can't reach my calendar right now, so I can't show live availability. Please try again in a minute, or email me at ${OWNER_EMAIL}.`,
+      ...idleState(),
+    };
+  }
   if (slots.length === 0) {
     return {
       reply: `I don't have any open slots in the next 2 weeks. Reach out directly at ${OWNER_EMAIL} to arrange a time.`,

@@ -1,4 +1,4 @@
-import { getAvailableSlots, createBooking } from "@/lib/calendar";
+import { listFreeSlots, createBooking } from "@/lib/calendar";
 import { retrieve } from "@/lib/retriever";
 import { OWNER_EMAIL } from "@/lib/config";
 import { normalizeSpokenEmail } from "@/lib/spoken-email";
@@ -31,7 +31,7 @@ async function handleToolCall(name: string, parameters: Record<string, string>):
   // ── getAvailableSlots ──
   if (name === "getAvailableSlots") {
     try {
-      const allSlots = await getAvailableSlots();
+      const allSlots = await listFreeSlots(); // throws if the calendar is unreadable → FALLBACK_MSG, never "no slots"
       const voiceSlots = selectVoiceSlots(allSlots);
 
       if (voiceSlots.length === 0) {

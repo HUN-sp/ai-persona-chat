@@ -104,3 +104,15 @@ export function snapToGrid(ms: number, toleranceMs = 2 * 60_000): number {
   const nearest = Math.round(ms / SLOT_MS) * SLOT_MS;
   return Math.abs(nearest - ms) <= toleranceMs ? nearest : ms;
 }
+
+const WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+/** Lower-case weekday name of an instant in IST ("monday"). */
+export function istWeekdayName(ms: number): string {
+  return WEEKDAY_NAMES[istParts(ms).weekday];
+}
+
+/** "Mon, 4 Mar"-style label in IST (en-IN: "Monday, 4 Mar"). */
+export function istDayLabel(ms: number): string {
+  return new Date(ms).toLocaleDateString("en-IN", { weekday: "long", month: "short", day: "numeric", timeZone: BOOKING_TZ });
+}

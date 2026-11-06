@@ -12,6 +12,7 @@
 
 import { listFreeSlots, createBooking, CalendarUnavailableError, type Slot } from "./calendar";
 import { extractEmail } from "./email";
+import { BOOKING_TZ, DAY_MS, istDayLabel, istParts, istWeekdayName } from "./slots";
 import type { BookingStep, BookingState, ChatResponse } from "./config";
 import { OWNER_EMAIL, idleState } from "./config";
 
@@ -56,27 +57,21 @@ function slotTimeLabel(s: Slot): string {
 }
 
 function slotWeekday(s: Slot): string {
-  return new Date(s.start)
-    .toLocaleDateString("en-US", { weekday: "long" })
-    .toLowerCase();
+  return istWeekdayName(Date.parse(s.start));
 }
 
 function formatReadableSlot(d: Date): string {
-  return `${d.toLocaleDateString("en-IN", { weekday: "long", month: "short", day: "numeric" })} at ${d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })} IST`;
+  return `${d.toLocaleDateString("en-IN", { weekday: "long", month: "short", day: "numeric", timeZone: BOOKING_TZ })} at ${d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: BOOKING_TZ })} IST`;
 }
 
-// Groups slots by calendar date → ordered list of unique days
+// Groups slots by IST calendar date → ordered list of unique days.
+// (Explicit IST: the result must not depend on the server's time zone.)
 function getUniqueDays(slots: Slot[]): { dateStr: string; label: string; slots: Slot[] }[] {
   const map = new Map<string, { label: string; slots: Slot[] }>();
   for (const slot of slots) {
-    const d = new Date(slot.start);
-    const dateStr = d.toDateString();
-    if (!map.has(dateStr)) {
-      map.set(dateStr, {
-        label: d.toLocaleDateString("en-IN", { weekday: "long", month: "short", day: "numeric" }),
-        slots: [],
-      });
-    }
+    const ms = Date.parse(slot.start);
+    const dateStr = istParts(ms).dateKey;
+    if (!map.has(dateStr)) map.set(dateStr, { label: istDayLabel(ms), slots: [] });
     map.get(dateStr)!.slots.push(slot);
   }
   return Array.from(map.entries()).map(([dateStr, v]) => ({ dateStr, ...v }));
@@ -96,46 +91,75 @@ function formatDaySlots(slots: Slot[]): string {
 
 // ── Parsing helpers ─────────────────────────────────────────────
 
-/** Parses "9:30 am", "9:30", "10am" → { hour, minute } */
+/**
+ * Parses "9:30 am", "9:30", "10am", "14:00", "at 3", "noon" → { hour, minute } (24h).
+ * Bookable hours are 08:00–18:30, so a bare hour 1–7 ("2:30", "at 3") can only mean PM.
+ * "12 am" is midnight (0), "12 pm"/"noon" is 12.
+ */
 function parseTime(message: string): { hour: number; minute: number } | null {
-  const colonMatch = message.match(/\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/i);
+  const lower = message.toLowerCase();
+  if (/\b(?:noon|midday)\b/.test(lower)) return { hour: 12, minute: 0 };
+
+  const colonMatch = lower.match(/\b(\d{1,2}):(\d{2})\s*(am|pm)?\b/);
   if (colonMatch) {
     let h = parseInt(colonMatch[1]);
     const m = parseInt(colonMatch[2]);
-    const mer = colonMatch[3]?.toLowerCase();
+    const mer = colonMatch[3];
     if (mer === "pm" && h !== 12) h += 12;
     if (mer === "am" && h === 12) h = 0;
+    if (!mer && h >= 1 && h <= 7) h += 12;
     if (h >= 0 && h < 24 && m >= 0 && m < 60) return { hour: h, minute: m };
   }
-  const shortMatch = message.match(/\b(\d{1,2})\s*(am|pm)\b/i);
+  const shortMatch = lower.match(/\b(\d{1,2})\s*(am|pm)\b/);
   if (shortMatch) {
     let h = parseInt(shortMatch[1]);
-    const mer = shortMatch[2].toLowerCase();
+    const mer = shortMatch[2];
     if (mer === "pm" && h !== 12) h += 12;
     if (mer === "am" && h === 12) h = 0;
     if (h >= 0 && h < 24) return { hour: h, minute: 0 };
   }
+  const atMatch = lower.match(/\bat\s+(\d{1,2})\b(?!\s*(?:st|nd|rd|th|\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)))/);
+  if (atMatch) {
+    let h = parseInt(atMatch[1]);
+    if (h >= 1 && h <= 7) h += 12;
+    if (h >= 8 && h <= 19) return { hour: h, minute: 0 };
+  }
   return null;
 }
 
-/** Parses "15 April", "April 15", "15th April" → Date */
-function parseDateFromText(message: string): Date | null {
+const MONTH_ALIASES = [
+  ["january", "jan"], ["february", "feb"], ["march", "mar"],
+  ["april", "apr"], ["may"], ["june", "jun"],
+  ["july", "jul"], ["august", "aug"], ["september", "sept", "sep"],
+  ["october", "oct"], ["november", "nov"], ["december", "dec"],
+];
+
+/**
+ * Parses "15 April", "April 15", "15th April", "18Jun" → { month: 1-12, day }.
+ * Month names must be whole words ("market"/"maybe"/"decide" are not months) but
+ * may touch the day number ("18jun"). The year is deliberately not guessed:
+ * slots lie within 14 days, so month+day identifies the date (also across New Year).
+ */
+function parseDateFromText(message: string): { month: number; day: number } | null {
   const lower = message.toLowerCase();
-  const monthAliases = [
-    ["january", "jan"], ["february", "feb"], ["march", "mar"],
-    ["april", "apr"], ["may"], ["june", "jun"],
-    ["july", "jul"], ["august", "aug"], ["september", "sep", "sept"],
-    ["october", "oct"], ["november", "nov"], ["december", "dec"],
-  ];
-  for (let mi = 0; mi < monthAliases.length; mi++) {
-    const m = monthAliases[mi].find((alias) => lower.includes(alias));
-    if (!m) continue;
-    const before = new RegExp(`(\\d{1,2})(?:st|nd|rd|th)?\\s*${m}`).exec(lower);
-    if (before) return new Date(new Date().getFullYear(), mi, parseInt(before[1]));
-    const after = new RegExp(`${m}\\s*(\\d{1,2})(?:st|nd|rd|th)?`).exec(lower);
-    if (after) return new Date(new Date().getFullYear(), mi, parseInt(after[1]));
+  for (let mi = 0; mi < MONTH_ALIASES.length; mi++) {
+    const names = MONTH_ALIASES[mi].join("|");
+    const before = new RegExp(`(?<![a-z0-9])(\\d{1,2})(?:st|nd|rd|th)?\\s*(?:${names})(?![a-z])`).exec(lower);
+    if (before) return { month: mi + 1, day: parseInt(before[1]) };
+    const after = new RegExp(`(?<![a-z])(?:${names})\\s*(\\d{1,2})(?:st|nd|rd|th)?(?![a-z0-9])`).exec(lower);
+    if (after) return { month: mi + 1, day: parseInt(after[1]) };
   }
   return null;
+}
+
+const sameDate = (slot: Slot, d: { month: number; day: number }) => {
+  const p = istParts(Date.parse(slot.start));
+  return p.month === d.month && p.day === d.day;
+};
+
+/** IST date keys for "today" and "tomorrow". */
+function relativeDayKey(which: "today" | "tomorrow"): string {
+  return istParts(Date.now() + (which === "tomorrow" ? DAY_MS : 0)).dateKey;
 }
 
 /** Detect which day the user picked from the day-summary screen */
@@ -156,14 +180,12 @@ function detectDayChoice(
   // 2. Explicit date: "14 Apr", "April 15th" (Check before day name to prevent wrong Friday selection)
   const parsed = parseDateFromText(message);
   if (parsed) {
-    const entry = uniqueDays.find((d) => d.dateStr === parsed.toDateString());
+    const entry = uniqueDays.find((d) => sameDate(d.slots[0], parsed));
     if (entry) return { daySlots: entry.slots, dayLabel: entry.label };
   }
 
   // 3. today / tomorrow
-  const todayStr = new Date().toDateString();
-  const tomorrowStr = new Date(Date.now() + 86_400_000).toDateString();
-  const rel = lower.includes("tomorrow") ? tomorrowStr : lower.includes("today") ? todayStr : null;
+  const rel = lower.includes("tomorrow") ? relativeDayKey("tomorrow") : lower.includes("today") ? relativeDayKey("today") : null;
   if (rel) {
     const entry = uniqueDays.find((d) => d.dateStr === rel);
     if (entry) return { daySlots: entry.slots, dayLabel: entry.label };
@@ -204,9 +226,7 @@ function detectSlotChoice(message: string, slots: Slot[]): SlotDetection {
   for (const [alias, fullDay] of Object.entries(DAY_ALIASES)) {
     const regex = new RegExp(`\\b${alias}\\b`);
     if (!regex.test(lower)) continue;
-    const daySlots = slots.filter(
-      (s) => new Date(s.start).toLocaleDateString("en-US", { weekday: "long" }).toLowerCase() === fullDay
-    );
+    const daySlots = slots.filter((s) => slotWeekday(s) === fullDay);
     if (daySlots.length === 0) continue;
     if (parsedTime) {
       const exact = daySlots.find((s) => {
@@ -235,12 +255,12 @@ function detectSlotChoice(message: string, slots: Slot[]): SlotDetection {
 
   // today / tomorrow shorthand
   const relativeDay = lower.includes("tomorrow")
-    ? new Date(Date.now() + 86_400_000).toDateString()
+    ? relativeDayKey("tomorrow")
     : lower.includes("today")
-      ? new Date().toDateString()
+      ? relativeDayKey("today")
       : null;
   if (relativeDay) {
-    const relSlots = slots.filter((s) => new Date(s.start).toDateString() === relativeDay);
+    const relSlots = slots.filter((s) => istParts(Date.parse(s.start)).dateKey === relativeDay);
     if (relSlots.length === 1) return { type: "found", slot: relSlots[0] };
     if (relSlots.length > 1) {
       const label = lower.includes("tomorrow") ? "tomorrow" : "today";
@@ -251,12 +271,10 @@ function detectSlotChoice(message: string, slots: Slot[]): SlotDetection {
   // Explicit date: "15 April"
   const parsedDate = parseDateFromText(message);
   if (parsedDate) {
-    const dateStr = parsedDate.toDateString();
-    const dateSlots = slots.filter((s) => new Date(s.start).toDateString() === dateStr);
+    const dateSlots = slots.filter((s) => sameDate(s, parsedDate));
     if (dateSlots.length === 1) return { type: "found", slot: dateSlots[0] };
     if (dateSlots.length > 1) {
-      const dayName = parsedDate.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
-      return { type: "ambiguous_day", daySlots: dateSlots, dayName };
+      return { type: "ambiguous_day", daySlots: dateSlots, dayName: slotWeekday(dateSlots[0]) };
     }
   }
 
@@ -513,7 +531,7 @@ function handleSlotsShown(input: BookingInput): BookingResult {
 
   if (detection.type === "ambiguous_time") {
     const dayOpts = detection.timeSlots
-      .map((s, i) => `${i + 1}. ${new Date(s.start).toLocaleDateString("en-IN", { weekday: "long", month: "short", day: "numeric" })}`)
+      .map((s, i) => `${i + 1}. ${new Date(s.start).toLocaleDateString("en-IN", { weekday: "long", month: "short", day: "numeric", timeZone: BOOKING_TZ })}`)
       .join("\n");
     return response({
       reply: `${detection.timeLabel} IST is available on:\n\n${dayOpts}\n\nWhich day?`,

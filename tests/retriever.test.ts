@@ -16,7 +16,7 @@ vi.mock("cohere-ai", () => ({
 vi.mock("@/lib/vector-db", () => ({ queryChunks: h.queryChunks }));
 vi.mock("@/lib/indexer", () => ({ buildIndex: h.buildIndex }));
 
-import { retrieve } from "@/lib/retriever";
+import { retrieve, clearRetrievalCaches } from "@/lib/retriever";
 
 const idx = [
   { text: "HFT chunk", embedding: [1, 0], metadata: { source: "resume" } },
@@ -29,6 +29,7 @@ function query(vec: number[]) {
 }
 
 beforeEach(() => {
+  clearRetrievalCaches();
   h.buildIndex.mockResolvedValue(idx);
   h.rerank.mockImplementation(async ({ documents, topN }: { documents: string[]; topN: number }) => ({
     results: documents.slice(0, topN).map((_, index) => ({ index })),
@@ -110,5 +111,31 @@ describe("rerank failure", () => {
     query([1, 0]);
     h.rerank.mockRejectedValue(new Error("rerank 500"));
     expect(await retrieve("hft", 1)).toContain("HFT chunk");
+  });
+});
+
+describe("retrieval caching (PERF-1)", () => {
+  it("a repeated question costs zero Cohere calls the second time", async () => {
+    query([1, 0]);
+    const a = await retrieve("What is your CGPA?", 5);
+    const calls = [h.embed.mock.calls.length, h.rerank.mock.calls.length];
+    const b = await retrieve("  what is   your cgpa? ", 5); // normalised key
+    expect(b).toBe(a);
+    expect([h.embed.mock.calls.length, h.rerank.mock.calls.length]).toEqual(calls);
+    expect(calls).toEqual([1, 1]);
+  });
+
+  it("caches 'nothing relevant' too (off-topic retries are free)", async () => {
+    query([-1, -1]);
+    await retrieve("capital of france", 5);
+    await retrieve("capital of france", 5);
+    expect(h.embed).toHaveBeenCalledTimes(1);
+  });
+
+  it("never caches a failure", async () => {
+    h.embed.mockRejectedValueOnce(new Error("cohere 500"));
+    await expect(retrieve("hft", 2)).rejects.toThrow();
+    query([1, 0]);
+    expect(await retrieve("hft", 2)).toContain("HFT chunk");
   });
 });

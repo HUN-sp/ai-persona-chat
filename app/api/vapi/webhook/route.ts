@@ -1,84 +1,14 @@
-import { getAvailableSlots, createBooking, Slot } from "@/lib/calendar";
+import { getAvailableSlots, createBooking } from "@/lib/calendar";
 import { retrieve } from "@/lib/retriever";
+import { OWNER_EMAIL } from "@/lib/config";
+import { parseSlotTime, snapToGrid, toSlot } from "@/lib/slots";
+import { selectVoiceSlots, formatSlotsForVoice } from "@/lib/voice";
+
+// Spoken form of the owner's address, for the TTS voice.
+const SPOKEN_OWNER_EMAIL = OWNER_EMAIL.replace(/@/g, " at ").replace(/\./g, " dot ");
 
 const FALLBACK_MSG =
-  "I'm having trouble connecting right now. Please ask the caller to email Vinay directly at vinay dot 23bcs10174 at sst dot scaler dot com, or try again shortly.";
-
-// ── Ordinal suffix: 1 → "1st", 23 → "23rd" (TTS reads these naturally) ──
-function ordinal(n: number): string {
-  const v = n % 100;
-  if (v >= 11 && v <= 13) return `${n}th`;
-  switch (n % 10) {
-    case 1:  return `${n}st`;
-    case 2:  return `${n}nd`;
-    case 3:  return `${n}rd`;
-    default: return `${n}th`;
-  }
-}
-
-// ── Pick slots for voice: 9am–5pm IST only, max 4 per day, max 3 days ──
-function selectVoiceSlots(slots: Slot[]): Slot[] {
-  const byDay = new Map<string, Slot[]>();
-
-  for (const s of slots) {
-    const d = new Date(s.start);
-    // IST hour for business-hours filter
-    const istHour = parseInt(
-      d.toLocaleTimeString("en-US", { hour: "numeric", hour12: false, timeZone: "Asia/Kolkata" })
-    );
-    if (istHour < 9 || istHour >= 17) continue; // keep only 9 AM – 5 PM
-
-    const dayKey = d.toLocaleDateString("en-US", {
-      timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit",
-    });
-    if (!byDay.has(dayKey)) byDay.set(dayKey, []);
-    if (byDay.get(dayKey)!.length < 4) byDay.get(dayKey)!.push(s); // max 4/day
-  }
-
-  const result: Slot[] = [];
-  let dayCount = 0;
-  for (const daySlots of byDay.values()) {
-    if (dayCount >= 3) break; // max 3 days
-    result.push(...daySlots);
-    dayCount++;
-  }
-  return result;
-}
-
-// ── Format: readable grouped list + internal slot refs the LLM won't say aloud ──
-function formatSlotsForVoice(slots: Slot[]): string {
-  const byDay = new Map<string, { label: string; slots: Slot[] }>();
-
-  for (const s of slots) {
-    const d = new Date(s.start);
-    const dayKey = d.toLocaleDateString("en-US", {
-      timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit",
-    });
-
-    if (!byDay.has(dayKey)) {
-      const weekday = d.toLocaleDateString("en-US", { weekday: "long",  timeZone: "Asia/Kolkata" });
-      const month   = d.toLocaleDateString("en-US", { month:   "long",  timeZone: "Asia/Kolkata" });
-      const dayNum  = parseInt(d.toLocaleDateString("en-US", { day: "numeric", timeZone: "Asia/Kolkata" }));
-      byDay.set(dayKey, { label: `${weekday}, ${month} ${ordinal(dayNum)}`, slots: [] });
-    }
-    byDay.get(dayKey)!.slots.push(s);
-  }
-
-  let optNum = 1;
-  const lines: string[] = [];
-
-  for (const { label, slots: daySlots } of byDay.values()) {
-    for (const s of daySlots) {
-      const time = new Date(s.start).toLocaleTimeString("en-US", {
-        hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata",
-      });
-      lines.push(`Option ${optNum}: ${label} at ${time} — slotTime=${s.start}`);
-      optNum++;
-    }
-  }
-
-  return lines.join("\n");
-}
+  `I'm having trouble connecting right now. Please ask the caller to email Vinay directly at ${SPOKEN_OWNER_EMAIL}, or try again shortly.`;
 
 async function handleToolCall(name: string, parameters: Record<string, string>): Promise<string> {
 
@@ -90,7 +20,7 @@ async function handleToolCall(name: string, parameters: Record<string, string>):
       const context = await retrieve(query, 5);
       return context
         ? context
-        : "I don't have specific information about that. You can email Vinay at vinay dot 23bcs10174 at sst dot scaler dot com for more details.";
+        : `I don't have specific information about that. You can email Vinay at ${SPOKEN_OWNER_EMAIL} for more details.`;
     } catch (e) {
       console.error("searchVinayBackground error:", e);
       return FALLBACK_MSG;
@@ -104,7 +34,7 @@ async function handleToolCall(name: string, parameters: Record<string, string>):
       const voiceSlots = selectVoiceSlots(allSlots);
 
       if (voiceSlots.length === 0) {
-        return "Vinay has no open slots in the 9 AM to 5 PM window in the next 2 weeks. Ask the caller to email Vinay at vinay dot 23bcs10174 at sst dot scaler dot com to arrange a custom time.";
+        return `Vinay has no open slots in the 9 AM to 5 PM window in the next 2 weeks. Ask the caller to email Vinay at ${SPOKEN_OWNER_EMAIL} to arrange a custom time.`;
       }
 
       const slotList = formatSlotsForVoice(voiceSlots);
@@ -156,24 +86,23 @@ async function handleToolCall(name: string, parameters: Record<string, string>):
       );
     }
 
+    // The slot must come back exactly as listed by getAvailableSlots (ISO string).
+    // Offset-less times are read as IST; ≤2 min drift is snapped to the half hour.
+    const parsed = parseSlotTime(slotTime);
+    if (parsed === null) {
+      return "I couldn't read that slot time. Call getAvailableSlots again and pass the slotTime value of the chosen option exactly as listed.";
+    }
+
     try {
-      const allSlots = await getAvailableSlots();
-
-      // Fuzzy-match: ISO timestamp from OPT refs should match exactly; 2-min window handles drift
-      const targetMs = new Date(slotTime).getTime();
-      const slot: Slot = allSlots.find((s) =>
-        Math.abs(new Date(s.start).getTime() - targetMs) < 2 * 60 * 1000
-      ) ?? {
-        start: new Date(targetMs).toISOString(),
-        end:   new Date(targetMs + 30 * 60_000).toISOString(),
-      };
-
-      console.log(`Booking: ${callerName} <${email}> @ ${slot.start}`);
-      const result = await createBooking(callerName, email, slot);
-      console.log("Booking result:", result.message);
+      const result = await createBooking(callerName, email, toSlot(snapToGrid(parsed)));
+      console.log(`Booking result: ${result.code}`);
+      if (result.success) return result.message;
+      if (result.code === "slot_taken" || result.code === "invalid_slot") {
+        return `${result.message} Tell the caller, then call getAvailableSlots again and offer the new options.`;
+      }
       return result.message;
     } catch (e) {
-      console.error("createBooking error:", e);
+      console.error("createBooking error:", e instanceof Error ? e.message : "unknown");
       return FALLBACK_MSG;
     }
   }

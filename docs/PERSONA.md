@@ -29,7 +29,7 @@ Edit `persona/template.ts`. Placeholders look like `{{contact.email}}` and are f
 `tests/fixtures/system-prompt.golden.txt` is a snapshot of the exact prompt; it exists to prove refactors don't change behaviour. After an *intentional* change, regenerate it:
 
 ```bash
-npx tsx -e 'import("./persona").then(m=>require("fs").writeFileSync("tests/fixtures/system-prompt.golden.txt", m.SYSTEM_PROMPT))'
+npm run update-golden
 ```
 
 Review the diff of that file – it is the diff of what the model will be told.

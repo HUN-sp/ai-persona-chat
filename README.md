@@ -88,6 +88,7 @@ See [`.env.example`](.env.example) (no real values). Summary:
 | `npm run evals:live` | Same questions against **real** Groq + Cohere (needs keys; costs a few cents; not in CI) |
 | `npm run google-auth` | Prints a `GOOGLE_REFRESH_TOKEN` after you approve access (nothing is written to disk) |
 | `npm run rebuild-index` | Re-chunks `data/resume.txt` + your public GitHub repos, embeds with Cohere, overwrites `data/index.json` (**paid calls**; review the diff) |
+| `npm run update-golden` | Regenerates the golden system-prompt snapshot after an *intentional* persona change |
 | `npm run seed-pinecone` | Creates the `vinay-persona` index if needed and upserts `data/index.json` (no embedding calls) |
 
 ### Updating the knowledge base

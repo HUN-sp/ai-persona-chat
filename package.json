@@ -13,7 +13,8 @@
     "seed-pinecone": "tsx scripts/upsert-pinecone.ts",
     "google-auth": "tsx scripts/google-auth.ts",
     "evals": "vitest run evals",
-    "evals:live": "tsx evals/live.ts"
+    "evals:live": "tsx evals/live.ts",
+    "update-golden": "tsx scripts/update-prompt-golden.ts"
   },
   "dependencies": {
     "@pinecone-database/pinecone": "^7.2.0",

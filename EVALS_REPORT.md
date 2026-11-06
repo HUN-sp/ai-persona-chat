@@ -52,3 +52,19 @@ Cohere SDK v7+ changed the expected default env var from `COHERE_API_KEY` to `CO
 - **LLM-as-judge eval suite** — write 20 ground-truth Q&A pairs, run them nightly, use GPT-4o to score faithfulness and relevance; track regression across commits
 - **Double-booking guard** — before confirming, re-check the slot is still free (race condition if two callers book simultaneously)
 - **Voice booking memory** — Vapi loses slot context between tool calls; implement a lightweight session store so the voice agent remembers which slot was discussed without re-fetching
+
+---
+
+## 5. Engineering-pass update (added later; sections 1–4 above are unchanged)
+
+Status of the §4 "improve next" list after the hardening pass documented in `docs/PROGRESS.md`:
+
+| Item | Status |
+|---|---|
+| Streaming chat responses (SSE) | **Done** – `/api/chat` streams tokens; UI renders them incrementally |
+| Double-booking guard | **Done** – freebusy re-check right before insert + per-slot lock; chat and voice share it. Residual cross-instance race window = one freebusy+insert round trip (Google has no transactions) |
+| Automated evals | **Partly** – 25-question ground-truth set + 4 booking flows run offline in CI (routing, retrieval wiring, prompt assembly, guards). A live runner (`npm run evals:live`) scores real answers. An LLM-as-judge score is **not** implemented |
+| Voice booking memory | Not done – the webhook is stateless; it now validates whatever `slotTime` the model passes and tells it to re-fetch slots when invalid |
+| Phone number via Twilio | Not done |
+
+Failure modes found in the audit that were not in §3 (all fixed): booking accepted a client-supplied slot; the voice webhook booked any time it was given; the webhook was unauthenticated; the off-topic guard was effectively disabled by the keyword "you"; booking started on words like "Facebook".

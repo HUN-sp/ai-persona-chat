@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit + integration tests (all external services mocked)
+        run: npm test
+      - name: Offline evals (routing, retrieval wiring, prompt assembly, guards, booking flows)
+        run: npm run evals
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: evals/results/
+          if-no-files-found: ignore
+      - name: Build
+        run: npm run build
+        env:
+          # No real credentials in CI: nothing at build time calls an external service.
+          NEXT_TELEMETRY_DISABLED: "1"

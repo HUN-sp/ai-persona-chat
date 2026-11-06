@@ -11,7 +11,9 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "seed-pinecone": "tsx scripts/upsert-pinecone.ts",
-    "google-auth": "tsx scripts/google-auth.ts"
+    "google-auth": "tsx scripts/google-auth.ts",
+    "evals": "vitest run evals",
+    "evals:live": "tsx evals/live.ts"
   },
   "dependencies": {
     "@pinecone-database/pinecone": "^7.2.0",

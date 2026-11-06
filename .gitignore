@@ -50,3 +50,6 @@ next-env.d.ts
 
 # per-developer Claude Code settings
 /.claude/settings.local.json
+
+# eval artefacts
+/evals/results/

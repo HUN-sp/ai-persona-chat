@@ -12,12 +12,19 @@ function isSourceFile(path: string): boolean {
   return SOURCE_EXTENSIONS.has(ext);
 }
 
-function getHeaders() {
+function getHeaders(): Record<string, string> {
+  // Unauthenticated requests work for public repos (60/h); a token raises the limit.
+  // (Sending "Bearer undefined" makes GitHub answer 401 – so only send it when set.)
   const token = process.env.GITHUB_TOKEN || process.env.YOUR_TOKEN;
   return {
-    Authorization: `Bearer ${token}`,
     Accept: "application/vnd.github+json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
+}
+
+/** Forks whose source files are still indexed (the owner's open-source contributions). */
+function includedForks(): Set<string> {
+  return new Set((process.env.INDEX_INCLUDE_FORKS ?? "grass,guppy").split(",").map((s) => s.trim()).filter(Boolean));
 }
 
 export interface CodeChunk {
@@ -40,8 +47,9 @@ async function fetchAllRepos(): Promise<RepoMeta[]> {
     `${BASE_URL}/users/${GITHUB_USERNAME}/repos?sort=updated&per_page=100`,
     { headers: getHeaders() }
   );
+  if (!res.ok) throw new Error(`GitHub API returned ${res.status} listing repos (rate limit or bad GITHUB_TOKEN?)`);
   const repos = await res.json();
-  if (!Array.isArray(repos)) return [];
+  if (!Array.isArray(repos)) throw new Error("Unexpected GitHub API response listing repos");
   return repos.map((r: { name: string; description: string | null; language: string | null; html_url: string; fork: boolean }) => ({
     name: r.name,
     description: r.description,
@@ -102,8 +110,10 @@ export async function fetchGitHubChunks(): Promise<CodeChunk[]> {
     });
   }
 
-  // ── Source file chunks (top 5 files per repo, first 15 repos) ──
-  for (const repo of repos.slice(0, 15)) {
+  // ── Source file chunks (top 5 files per repo, first 15 own repos) ──
+  // Third-party forks are skipped (their code is not Vinay's work and would be quoted as his).
+  const forks = includedForks();
+  for (const repo of repos.filter((r) => !r.fork || forks.has(r.name)).slice(0, 15)) {
     const files = await fetchFileTree(repo.name);
     for (const filePath of files) {
       const content = await fetchFileContent(repo.name, filePath);

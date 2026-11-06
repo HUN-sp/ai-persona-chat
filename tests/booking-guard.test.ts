@@ -176,3 +176,13 @@ describe("calendar outage is not 'no availability' (BK-2)", () => {
     expect(r.bookingStep).toBe("idle");
   });
 });
+
+describe("calendar client reuse (PERF-1)", () => {
+  it("one OAuth client serves many calls (was: a new client + token refresh per call)", async () => {
+    const { listFreeSlots } = await import("@/lib/calendar");
+    await listFreeSlots();
+    await listFreeSlots();
+    await createBooking("Alice Smith", "alice@example.com", slotAt("2030-03-05", "10:00"));
+    expect(calendarState.oauthClients).toBeLessThanOrEqual(1);
+  });
+});

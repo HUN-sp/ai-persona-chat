@@ -40,8 +40,8 @@ Status column is updated as phases complete: ☐ open · ✅ fixed · ◐ partly
 | ID | Eff | Status | Finding | Evidence |
 |---|---|---|---|---|
 | **RAG-3** | M | ☐ | Persona facts (CGPA 8.18, PR #7097/#7005, 40 %/25 %, project list, BITS/2027) are hard-coded in `persona.ts` *and* `resume.txt` *and* the index → drift risk. Also `Expected 2027 / 3rd Year` are time-sensitive. | `lib/persona.ts:39-40` |
-| **RAG-4** | M | ☐ | Retrieval query is only the last user message; follow-ups ("tell me more", "and the second one?") retrieve garbage. | `route.ts:62` |
-| **RAG-5** | S | ☐ | No `temperature` set (Groq default 1.0) for a grounded-answer bot; `max_tokens` is deprecated for `max_completion_tokens`; no timeout/retry on Groq/Cohere. | `route.ts:82-86`, groq-sdk types |
+| **RAG-4** | M | ✅ | Retrieval query is only the last user message; follow-ups ("tell me more", "and the second one?") retrieve garbage. | `route.ts:62` |
+| **RAG-5** | S | ✅ | No `temperature` set (Groq default 1.0) for a grounded-answer bot; `max_tokens` is deprecated for `max_completion_tokens`; no timeout/retry on Groq/Cohere. | `route.ts:82-86`, groq-sdk types |
 | **RAG-6** | M | ◐ | Index quality: the PROJECTS section is one 3 KB chunk (built before `splitProjectsSection`); 59 chunks come from forks/third-party repos; repo's own source (`ai-persona-chat`, 14 chunks) can be quoted back. Needs a Cohere key to rebuild → *Needs real testing*. | `data/index.json` analysis |
 | **RAG-7** | S | ☐ | `/api/init` is public and can trigger a full GitHub+Cohere rebuild if the static import ever fails. | `app/api/init/route.ts` |
 | **BK-5** | S | ✅ | `"2:30"` (no am/pm) is not understood although `"at 14:00"` is; month-name matching is substring based (`mar`⊂`market`, `may`, `dec`⊂`decide`); date parsing uses the current year only (late-December request for January fails). Name extraction falls back to `"Guest"`. | `booking.ts:100-139, 273-281` |
@@ -49,9 +49,9 @@ Status column is updated as phases complete: ☐ open · ✅ fixed · ◐ partly
 | **FE-1** | M | ☐ | Accessibility: no `aria-live` on the transcript, input has no label, icon-less buttons lack focus-visible styles, voice overlay not a dialog, no `<main>`; colour contrast of `text-gray-500` on `gray-950` is borderline. | `app/page.tsx` |
 | **FE-2** | S | ☐ | Mobile: voice overlay hard-codes `top: 65px`; chat height `calc(100vh - 65px)` (breaks under mobile browser chrome → use `dvh`); header does not wrap on narrow screens. | `page.tsx:179, 244` |
 | **FE-3** | S | ☐ | Error/loading states: no retry; non-JSON error body shows "Connection error"; mic-permission failure on `vapi.start` is silent; Vapi call is not stopped on unmount; no abort of in-flight fetch. | `page.tsx:92-99, 128-130` |
-| **FE-4** | S | ☐ | Fonts: `Geist_Mono` is loaded but unused and `globals.css` overrides body font with Arial, so Geist Sans is also dead weight. | `app/layout.tsx`, `globals.css:25` |
+| **FE-4** | S | ✅ | Fonts: `Geist_Mono` is loaded but unused and `globals.css` overrides body font with Arial, so Geist Sans is also dead weight. | `app/layout.tsx`, `globals.css:25` |
 | **FE-5** | S | ☐ | `NEXT_PUBLIC` config: Vapi public key + assistant id hard-coded. (Public by design, but should be env-overridable.) | `page.tsx:7-8` |
-| **PERF-1** | S | ☐ | New OAuth2 client (and token refresh round-trip) for every calendar call; no memoisation of query embeddings or retrieval results; full slot list (~170 slots ×2) echoed in every request/response. | `calendar.ts:8-18`, `retriever.ts:43-50`, `route.ts:162` |
+| **PERF-1** | S | ✅ | New OAuth2 client (and token refresh round-trip) for every calendar call; no memoisation of query embeddings or retrieval results; full slot list (~170 slots ×2) echoed in every request/response. | `calendar.ts:8-18`, `retriever.ts:43-50`, `route.ts:162` |
 | **PERF-2** | S | ☐ | No tests, no CI, no automated evals; `verify-booking.ts` at repo root is type-checked by the build but needs live Google credentials. | repo root |
 | **HYG-3** | S | ➜ | Personal / third-party files tracked in git (**owner decision**): `lib/Vinay_Resume (1).pdf` (343 KB, contains phone + email), `lib/Assignment (2).pdf`, `Assignment (2).json`, `Assignment (2).content.txt` (employer's screening assignment text), `.claude/settings.local.json`. None are imported by code. | `git ls-files` |
 | **HYG-4** | S | ➜ | Personal data hard-coded: phone `+91-8822091421` and Scaler email in `lib/config.ts:36-38` (and in `data/resume.txt`/index, so the LLM will print them to anyone); a *different* personal Gmail (`chopravinaykumarchopra@gmail.com`) hard-coded as the calendar attendee in `lib/calendar.ts:117`. | owner decision on exposure; moved to config in Phase 4 |
@@ -72,3 +72,33 @@ Status column is updated as phases complete: ☐ open · ✅ fixed · ◐ partly
 - **Secrets in git history:** scanned all 17 commits (all refs) for Groq/Google/GitHub/Pinecone/Cohere/OpenAI token patterns, `.env*` files and credential files: none found. `scripts/` was never committed, so the original (credential-bearing) auth script never reached git. A second, broader scan is repeated in Phase 5.
 - **XSS via react-markdown:** none (no `rehype-raw`; URLs sanitised). Image-based exfiltration is covered by SEC-7.
 - **Secrets in the client bundle:** only the Vapi *public* key and assistant id (intended to be public).
+
+---
+
+# Phase 3 – measured optimisations
+
+Method: deterministic and offline. Call counts come from mock-counting tests (`tests/retriever.test.ts`, `tests/booking-guard.test.ts`, `tests/router.test.ts`); sizes from `npx tsx evals/measure.ts` and `next build` of the original commit `45bbddc` (fresh `npm ci`) vs HEAD. Tokens ≈ chars/4. **No live latency was measured** (no keys); latency effects below are inferred from call counts and labelled as such.
+
+| Metric | Before | After | How |
+|---|---|---|---|
+| Cohere calls for a *repeated* question | 2 (embed + rerank) | **0** | embedding + result cache (30 min, 200 entries) |
+| Pinecone queries for a repeated question | 1 | **0** | same cache |
+| Cohere/Groq calls for clearly off-topic messages | 3 (embed, rerank, Groq) for 7 of 10 probes | **0** for 10 of 10 | router fix (RT-2) – blocked before any API call |
+| Calendar API calls caused by non-booking messages ("Book-Author project", "Facebook"…) | OAuth refresh + freebusy for 5 of 10 probes | **0** | router fix (RT-1) |
+| OAuth client constructions per calendar call | 1 per call (each triggers a token refresh round-trip) | **1 per instance** | memoised client |
+| Google calls to *confirm* a booking | 1 insert (+ token refresh) | 2 (freebusy re-check + insert) | **+1 deliberately**: the double-booking guard (SEC-3) |
+| Pinecone path, off-topic query | rerank call + 5 junk chunks (~1.8k tokens) sent to Groq | **no rerank, no context** | threshold on Pinecone tier (RAG-1) |
+| History tokens sent to Groq, 40-turn chat | ≈ 5,930 and unbounded | **≈ 1,130** (16-message cap) | `parseMessages` |
+| System prompt | ≈ 1,118 tokens | ≈ 1,330 tokens | **+~210 tokens** for the SECURITY section (SEC-7) – a deliberate cost |
+| Typical context per request | ≈ 1,850 tokens (5 × 1,481 chars) | unchanged | worst case 7.2k tokens when the five largest chunks win |
+| Client JS (all chunks) | 1,044,225 B | **986,993 B** (−5.5 %) | Next 16.4.5 + removed libs |
+| Static font assets | 11 woff2 = 146 KB | **0** | unused Geist fonts removed (page looks identical – CSS already forced Arial) |
+| Server JS emitted (sum of all chunks) | 37.1 MB | 33.3 MB | index-build code (GitHub/Cohere/pdf) out of the bundle, dead deps removed, Next bump |
+| Groq call robustness | no timeout/retry | 25 s timeout, 1 retry, temperature 0.3 | RAG-5 (quality effect unverified live) |
+| Follow-up retrieval ("tell me more") | searches the 3 words alone | searches with the previous question | RAG-4 |
+
+Inferred latency: a cache hit removes two sequential Cohere round-trips from time-to-first-token (typically on the order of 100–400 ms each in my experience – **unmeasured here**). Streaming (Phase 4a) addresses perceived latency for the cache-miss case.
+
+### Measured and rejected
+- **Quantising `data/index.json` embeddings to 5 decimals:** −29 % file size (2.85 → 2.03 MB), max cosine drift 1.2e-5. But JSON parse is only **17 ms** and a full 198-chunk cosine scan **0.18 ms**, so cold-start gain is a few ms and it would add another ~2 MB blob to git history. Not worth it.
+- **Dropping `end` from slot payloads** (30 KB per booking response/request for 219 slots): ~40 % smaller but changes the API shape for ~12 KB; skipped, noted for later.

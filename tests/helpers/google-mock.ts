@@ -23,6 +23,7 @@ export const calendarState = {
   /** artificial latency (ms) to widen race windows */
   latencyMs: 0,
   lastInsert: null as unknown,
+  oauthClients: 0,
 };
 
 export function resetCalendar() {
@@ -34,6 +35,7 @@ export function resetCalendar() {
   calendarState.failInsert = false;
   calendarState.latencyMs = 0;
   calendarState.lastInsert = null;
+  calendarState.oauthClients = 0;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -44,6 +46,9 @@ function overlaps(a: { start: string; end: string }, minMs: number, maxMs: numbe
 
 export function googleModuleFactory() {
   class OAuth2 {
+    constructor() {
+      calendarState.oauthClients++;
+    }
     setCredentials() {}
   }
   const calendar = () => ({

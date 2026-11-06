@@ -10,17 +10,9 @@
  * The caller only ever calls retrieve(query, topK) — the strategy is transparent.
  */
 
-import { CohereClient } from "cohere-ai";
+import { getCohereClient, EMBED_MODEL, RERANK_MODEL } from "./cohere";
 import { buildIndex, IndexedChunk } from "./indexer";
 import { queryChunks } from "./vector-db";
-
-let _cohere: CohereClient | null = null;
-function getCohereClient(): CohereClient {
-  if (!_cohere) {
-    _cohere = new CohereClient({ token: process.env.COHERE_API_KEY ?? process.env.CO_API_KEY });
-  }
-  return _cohere;
-}
 
 // ── Scoring parameters ──────────────────────────────────────────
 
@@ -46,7 +38,7 @@ function cosineSimilarity(a: number[], b: number[]): number {
 async function embedQuery(query: string): Promise<number[]> {
   const response = await getCohereClient().embed({
     texts: [query],
-    model: "embed-english-v3.0",
+    model: EMBED_MODEL,
     inputType: "search_query",
   });
   return (response.embeddings as number[][])[0];
@@ -55,7 +47,7 @@ async function embedQuery(query: string): Promise<number[]> {
 async function rerank(query: string, docs: string[], topK: number): Promise<string[]> {
   try {
     const reranked = await getCohereClient().rerank({
-      model: "rerank-english-v3.0",
+      model: RERANK_MODEL,
       query,
       documents: docs,
       topN: Math.min(topK, docs.length),

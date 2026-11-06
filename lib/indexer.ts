@@ -1,6 +1,3 @@
-import { CohereClient } from "cohere-ai";
-import { fetchGitHubChunks, CodeChunk } from "./github";
-import { fetchResumeChunks, ResumeChunk } from "./resume";
 import prebuiltIndex from "../data/index.json";
 
 export interface IndexedChunk {
@@ -17,91 +14,16 @@ export interface IndexedChunk {
 // Use globalThis so the cache survives Next.js hot reloads in dev mode
 const g = globalThis as typeof globalThis & { __ragIndex?: IndexedChunk[] };
 
-let _cohere: CohereClient | null = null;
-function getCohereClient(): CohereClient {
-  if (!_cohere) {
-    _cohere = new CohereClient({ token: process.env.COHERE_API_KEY ?? process.env.CO_API_KEY });
-  }
-  return _cohere;
-}
-
-function loadPrebuiltIndex(): IndexedChunk[] | null {
-  try {
-    console.log("Loading statically imported pre-built RAG index...");
-    const index = prebuiltIndex as IndexedChunk[];
-    console.log(`Loaded ${index.length} chunks from pre-built index.`);
-    return index;
-  } catch (e) {
-    console.error("Failed to load pre-built index, will build dynamically:", e);
-  }
-  return null;
-}
-
-function chunkToText(chunk: CodeChunk | ResumeChunk): string {
-  if (chunk.source === "github") {
-    const c = chunk as CodeChunk;
-    return `[repo: ${c.repo}] [file: ${c.filePath}]\n\n${c.content}`;
-  } else {
-    const c = chunk as ResumeChunk;
-    return `[resume section: ${c.section}]\n\n${c.content}`;
-  }
-}
-
-async function embedBatch(texts: string[]): Promise<number[][]> {
-  const response = await getCohereClient().embed({
-    texts,
-    model: "embed-english-v3.0",
-    inputType: "search_document",
-  });
-  return response.embeddings as number[][];
-}
-
-
+/**
+ * The in-memory RAG index: the statically imported, pre-built data/index.json.
+ * To regenerate it from the resume + GitHub run `npm run rebuild-index`
+ * (needs COHERE_API_KEY; see scripts/rebuild-index.ts).
+ */
 export async function buildIndex(): Promise<IndexedChunk[]> {
-  if (g.__ragIndex) return g.__ragIndex;
-
-  // Try loading pre-built index first (used on Vercel where globalThis doesn't persist)
-  const prebuilt = loadPrebuiltIndex();
-  if (prebuilt) {
-    g.__ragIndex = prebuilt;
-    return g.__ragIndex;
+  if (!g.__ragIndex) {
+    g.__ragIndex = prebuiltIndex as IndexedChunk[];
+    console.log(`Loaded ${g.__ragIndex.length} chunks from pre-built index.`);
   }
-
-  console.log("Building RAG index dynamically...");
-
-  const [githubChunks, resumeChunks] = await Promise.all([
-    fetchGitHubChunks(),
-    Promise.resolve(fetchResumeChunks()),
-  ]);
-
-  const allChunks = [...githubChunks, ...resumeChunks];
-  const texts = allChunks.map(chunkToText);
-
-  // Embed in batches of 20 with delay to avoid Cohere trial rate limit
-  const BATCH_SIZE = 20;
-  const allEmbeddings: number[][] = [];
-
-  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    const batch = texts.slice(i, i + BATCH_SIZE);
-    const embeddings = await embedBatch(batch);
-    allEmbeddings.push(...embeddings);
-    if (i + BATCH_SIZE < texts.length) {
-      await new Promise((r) => setTimeout(r, 1000)); // 1s pause between batches
-    }
-  }
-
-  g.__ragIndex = allChunks.map((chunk, i) => ({
-    text: texts[i],
-    embedding: allEmbeddings[i],
-    metadata: {
-      source: chunk.source,
-      ...(chunk.source === "github"
-        ? { repo: (chunk as CodeChunk).repo, filePath: (chunk as CodeChunk).filePath }
-        : { section: (chunk as ResumeChunk).section }),
-    },
-  }));
-
-  console.log(`Index built: ${g.__ragIndex.length} chunks`);
   return g.__ragIndex;
 }
 

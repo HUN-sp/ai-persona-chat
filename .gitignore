@@ -30,8 +30,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files – never commit; copy .env.example to .env.local
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -40,7 +41,12 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# auth scripts (contain credentials)
-/scripts/
+# scripts/ IS tracked (rebuild-index, seed-pinecone, google-auth read secrets from env only).
+# Keep throw-away scripts that embed credentials in scripts/local/ – never committed.
+/scripts/local/
+/scripts/*.local.*
 
 # pre-built RAG index is committed to git (see data/index.json)
+
+# per-developer Claude Code settings
+/.claude/settings.local.json

@@ -30,7 +30,7 @@ One commit per fix, each with offline tests (206 tests, 13 files; every external
 | spoken email | BK-3: `minus`→`-`, underscore/dash/plus, double/triple, "at the rate of" |
 | calendar outage | BK-2: outage ≠ "no open slots" (chat + voice) |
 | HTTP hardening | SEC-4/5/6/BK-6: `VAPI_WEBHOOK_SECRET` (X-Vapi-Secret or Bearer; /api/chat alias shares it), body/message caps, roles/types validated, history ≤16, per-IP rate limits, global 12 bookings/h, CORS only for `ALLOWED_ORIGINS`, no body logging, generic 500s |
-| router | RT-1/2/3: probe set 21/37 → 37/37; 79-case fixture |
+| router | RT-1/2/3: probe set 21/37 → 37/37; 70-case fixture (the earlier commit message says 79 — a miscount) |
 | prompt safety | SEC-7: fenced untrusted context, SECURITY rules, leak/fake-booking output guard, no `<img>`/raw HTML in UI |
 | retriever | RAG-1: threshold on Pinecone tier; "empty index" vs "nothing relevant" |
 | scripts/hygiene | RAG-2/HYG-2: `scripts/` tracked (rebuild-index, seed-pinecone, google-auth), `.env.example`, fork filter, GitHub fetch without token |

@@ -111,7 +111,7 @@ Persona authoring (wording, facts, a different person): [`docs/PERSONA.md`](docs
 
 ## Testing
 
-- `npm test` – ~290 tests, all offline: booking guard (race/tamper), router (79 labelled cases), webhook/auth, SSE, persona golden prompt, retriever caching, and the eval harness.
+- `npm test` – ~290 tests, all offline: booking guard (race/tamper), router (70 labelled cases), webhook/auth, SSE, persona golden prompt, retriever caching, and the eval harness.
 - CI (`.github/workflows/ci.yml`): lint → typecheck → tests + offline evals → build.
 - The offline evals prove routing, prompt assembly, guards, booking flows and that every ground-truth fact is in the shipped index. They **cannot** judge real model answers; use `npm run evals:live`.
 

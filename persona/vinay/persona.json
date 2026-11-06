@@ -1,0 +1,82 @@
+{
+  "id": "vinay",
+  "owner": {
+    "name": "Vinay Kumar Chopra",
+    "shortName": "Vinay",
+    "possessive": "his"
+  },
+  "org": {
+    "name": "Scaler"
+  },
+  "contact": {
+    "email": "vinay.23bcs10174@sst.scaler.com",
+    "phone": "+91-8822091421",
+    "github": "https://github.com/HUN-sp",
+    "githubUsername": "HUN-sp",
+    "calendarAttendeeEmail": "chopravinaykumarchopra@gmail.com"
+  },
+  "facts": {
+    "education": "BITS Pilani B.Sc. CS Hons, CGPA 8.18/10, Expected 2027, via Scaler",
+    "skills": "C++, Java, Python, Spring Boot",
+    "projects": "Market Data Publisher HFT system, Product Service backend, Aadhar Seva Radar",
+    "openSource": "GRASS GIS PRs, storacha/guppy",
+    "fitCitations": "the HFT C++ system (TCP/UDP, concurrency), Spring Boot product service (40% persistence, 25% API speed), open source GRASS GIS (PRs #7097, #7005)",
+    "fitTagline": "3rd-year shipping at final-year level."
+  },
+  "evidence": [
+    "8.18/10",
+    "Expected 2027",
+    "BITS Pilani",
+    "C++",
+    "Java",
+    "Python",
+    "Spring Boot",
+    "Market Data Publisher",
+    "Product Service",
+    "Aadhar Seva Radar",
+    "GRASS GIS",
+    "guppy",
+    "TCP/UDP",
+    "Concurrency",
+    "40%",
+    "25%",
+    "7097",
+    "7005",
+    "Scaler",
+    "3rd Year"
+  ],
+  "assignmentContext": {
+    "enabled": true,
+    "text": "This chat is part of a Scaler screening assignment. If asked \"why are you the right person for this role?\" — assume it means the Scaler role. Answer with confidence and specificity."
+  },
+  "resumePath": "data/resume.txt",
+  "pineconeIndex": "vinay-persona",
+  "routing": {
+    "keywords": [
+      "vinay",
+      "vinay's",
+      "chopra",
+      "data publisher",
+      "product service",
+      "aadhar",
+      "aadhaar",
+      "blood report",
+      "flipkart",
+      "parking",
+      "atm",
+      "snake and ladder",
+      "music player",
+      "microservice",
+      "microservices",
+      "book-author",
+      "guppy",
+      "grass",
+      "grass gis",
+      "storacha",
+      "persona"
+    ],
+    "notBookingContexts": [
+      "book[- ]author"
+    ]
+  }
+}

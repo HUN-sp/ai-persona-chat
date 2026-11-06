@@ -4,6 +4,7 @@
  */
 
 import type { Slot } from "./calendar";
+import { persona } from "../persona";
 
 // ── Shared types ────────────────────────────────────────────────
 
@@ -23,13 +24,15 @@ export interface ChatResponse extends BookingState {
 
 // ── Constants ───────────────────────────────────────────────────
 
-export const OWNER_NAME = "Vinay Kumar Chopra";
-export const OWNER_EMAIL = "vinay.23bcs10174@sst.scaler.com";
-export const OWNER_PHONE = "+91-8822091421";
-export const OWNER_GITHUB = "https://github.com/HUN-sp";
+// Owner identity/contact come from the active persona (persona/<id>/persona.json).
+export const OWNER_NAME = persona.owner.name;
+export const OWNER_SHORT_NAME = persona.owner.shortName;
+export const OWNER_EMAIL = persona.contact.email;
+export const OWNER_PHONE = persona.contact.phone;
+export const OWNER_GITHUB = persona.contact.github;
 
-/** Calendar attendee added to every booking (moved to persona config in Phase 4). */
-export const OWNER_CALENDAR_ATTENDEE = process.env.OWNER_CALENDAR_EMAIL ?? "chopravinaykumarchopra@gmail.com";
+/** Calendar attendee added to every booking (override with OWNER_CALENDAR_EMAIL). */
+export const OWNER_CALENDAR_ATTENDEE = process.env.OWNER_CALENDAR_EMAIL ?? persona.contact.calendarAttendeeEmail;
 
 export const GROQ_MODEL = "llama-3.3-70b-versatile";
 /** Low temperature: this is a grounded-answer bot, not a creative writer. Override with GROQ_TEMPERATURE. */

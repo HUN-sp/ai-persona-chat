@@ -1,0 +1,22 @@
+{
+  "initials": "VK",
+  "tagline": "AI Representative · CS @ BITS Pilani",
+  "pageTitle": "Vinay Kumar Chopra — AI Representative",
+  "pageDescription": "Chat with Vinay's AI persona. Ask about his background, projects, and book an interview.",
+  "displayName": "Vinay Kumar Chopra",
+  "shortName": "Vinay",
+  "greeting": "Hi! I'm Vinay Kumar Chopra's AI representative. I can answer questions about my background, skills, projects, and help you schedule a meeting. What would you like to know?",
+  "bookMessage": "I'd like to book a call with Vinay",
+  "placeholder": "Ask about Vinay's skills, projects, or availability…",
+  "suggestedQuestions": [
+    "Why are you the right person for this role?",
+    "Tell me about your Market Data Publisher project",
+    "What is your educational background?",
+    "When are you available for an interview?",
+    "What open source work have you done?"
+  ],
+  "vapi": {
+    "publicKey": "de0ffe0b-48dd-46b1-b342-b5747a508468",
+    "assistantId": "a080d640-6fcd-45af-948a-915eda767641"
+  }
+}

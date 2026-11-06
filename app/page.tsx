@@ -3,9 +3,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import Vapi from "@vapi-ai/web";
+import { parseSse } from "@/lib/sse";
 
-const VAPI_PUBLIC_KEY   = "de0ffe0b-48dd-46b1-b342-b5747a508468";
-const VAPI_ASSISTANT_ID = "a080d640-6fcd-45af-948a-915eda767641";
+// Vapi public key + assistant id are public by design (they ship to every browser).
+// Override per deployment with NEXT_PUBLIC_VAPI_PUBLIC_KEY / NEXT_PUBLIC_VAPI_ASSISTANT_ID.
+const VAPI_PUBLIC_KEY   = process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY   ?? "de0ffe0b-48dd-46b1-b342-b5747a508468";
+const VAPI_ASSISTANT_ID = process.env.NEXT_PUBLIC_VAPI_ASSISTANT_ID ?? "a080d640-6fcd-45af-948a-915eda767641";
 
 type Message = { role: "user" | "assistant"; content: string };
 type TranscriptLine = { role: "user" | "assistant"; text: string; final: boolean };
@@ -37,6 +40,7 @@ export default function Home() {
   // ── Voice call state ──
   const [callStatus, setCallStatus]     = useState<"idle" | "connecting" | "active">("idle");
   const [isSpeaking, setIsSpeaking]     = useState(false);
+  const [callError, setCallError]       = useState<string | null>(null);
   const [transcript, setTranscript]     = useState<TranscriptLine[]>([]);
   const vapiRef        = useRef<Vapi | null>(null);
   const voiceBottomRef = useRef<HTMLDivElement>(null);
@@ -52,6 +56,7 @@ export default function Home() {
   // ── Voice call logic ──
   const startCall = useCallback(async () => {
     setCallStatus("connecting");
+    setCallError(null);
     setTranscript([]);
     const vapi = new Vapi(VAPI_PUBLIC_KEY);
     vapiRef.current = vapi;
@@ -66,6 +71,7 @@ export default function Home() {
     });
     vapi.on("error", (e) => {
       console.error("Vapi error:", e);
+      setCallError("The call ended unexpectedly. Please try again.");
       setCallStatus("idle");
       setIsSpeaking(false);
       vapiRef.current = null;
@@ -93,6 +99,7 @@ export default function Home() {
       await vapi.start(VAPI_ASSISTANT_ID);
     } catch (e) {
       console.error("Vapi start error:", e);
+      setCallError("Couldn't start the call. Please allow microphone access and try again.");
       setCallStatus("idle");
       vapiRef.current = null;
     }
@@ -101,6 +108,62 @@ export default function Home() {
   const endCall = useCallback(() => { vapiRef.current?.stop(); }, []);
 
   // ── Chat logic ──
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Stop in-flight requests and any live call when the page unmounts.
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    vapiRef.current?.stop();
+  }, []);
+
+  const applyBookingState = (d: Record<string, unknown>) => {
+    if (d.bookingStep  !== undefined) setBookingStep(d.bookingStep as typeof bookingStep);
+    if (d.allSlots     !== undefined) setAllSlots(d.allSlots as typeof allSlots);
+    if (d.pendingSlots !== undefined) setPendingSlots(d.pendingSlots as typeof pendingSlots);
+    if (d.selectedSlot !== undefined) setSelectedSlot(d.selectedSlot as typeof selectedSlot);
+    if (d.slotPage     !== undefined) setSlotPage(d.slotPage as number);
+  };
+
+  const addAssistant = (content: string) => setMessages((p) => [...p, { role: "assistant", content }]);
+  const setLastAssistant = (content: string) =>
+    setMessages((p) => [...p.slice(0, -1), { role: "assistant", content }]);
+
+  /** Read an SSE body: grow the last assistant bubble token by token, then apply the final state. */
+  const readStream = async (body: ReadableStream<Uint8Array>) => {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let acc = "";
+    let started = false;
+    let finished = false;
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parsed = parseSse(buffer);
+      buffer = parsed.rest;
+      for (const ev of parsed.events) {
+        if (ev.type === "token") {
+          acc += ev.text;
+          if (!started) { started = true; addAssistant(acc); } else { setLastAssistant(acc); }
+        } else if (ev.type === "done") {
+          finished = true;
+          if (started) setLastAssistant(ev.reply); else addAssistant(ev.reply);
+          started = true;
+          applyBookingState(ev);
+        } else if (ev.type === "error") {
+          finished = true;
+          if (started) setLastAssistant(acc ? `${acc}\n\n_(interrupted: ${ev.error})_` : ev.error); else addAssistant(ev.error);
+          started = true;
+        }
+      }
+    }
+    if (!finished) {
+      const note = "The connection dropped before I finished — please try again.";
+      if (started) setLastAssistant(`${acc}\n\n_(${note})_`); else addAssistant(note);
+    }
+  };
+
   const sendMessage = async (text: string) => {
     if (!text.trim() || loading) return;
     const userMessage: Message = { role: "user", content: text };
@@ -108,35 +171,38 @@ export default function Home() {
     setMessages(newMessages);
     setInput("");
     setLoading(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      const res  = await fetch("/api/chat", {
+      const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Accept: "text/event-stream, application/json" },
         body: JSON.stringify({ messages: newMessages, bookingStep, allSlots, pendingSlots, selectedSlot, slotPage }),
+        signal: controller.signal,
       });
-      const data = await res.json();
-      if (data.error) {
-        setMessages((p) => [...p, { role: "assistant", content: `Sorry, something went wrong: ${data.error}` }]);
+      if ((res.headers.get("content-type") ?? "").includes("text/event-stream") && res.body) {
+        await readStream(res.body);
       } else {
-        setMessages((p) => [...p, { role: "assistant", content: data.reply }]);
-        if (data.bookingStep  !== undefined) setBookingStep(data.bookingStep);
-        if (data.allSlots     !== undefined) setAllSlots(data.allSlots);
-        if (data.pendingSlots !== undefined) setPendingSlots(data.pendingSlots);
-        if (data.selectedSlot !== undefined) setSelectedSlot(data.selectedSlot);
-        if (data.slotPage     !== undefined) setSlotPage(data.slotPage);
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || data.error) {
+          addAssistant(data?.error ?? "Sorry, something went wrong. Please try again.");
+        } else {
+          addAssistant(data.reply);
+          applyBookingState(data);
+        }
       }
-    } catch {
-      setMessages((p) => [...p, { role: "assistant", content: "Connection error. Please try again." }]);
+    } catch (e) {
+      if ((e as Error)?.name !== "AbortError") addAssistant("Connection error. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
+    <div className="h-dvh bg-gray-950 text-gray-100 flex flex-col">
 
       {/* ── Header ── */}
-      <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between flex-shrink-0">
+      <header className="border-b border-gray-800 px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap gap-y-2 items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center font-bold text-lg">VK</div>
           <div>
@@ -147,7 +213,7 @@ export default function Home() {
         <div className="flex items-center gap-2">
           {callStatus === "idle" && (
             <button onClick={startCall}
-              className="flex items-center gap-2 text-sm bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg transition-colors">
+              className="flex items-center gap-2 text-sm bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400">
               <span className="w-2 h-2 bg-white rounded-full" />
               Voice Call
             </button>
@@ -160,7 +226,7 @@ export default function Home() {
           )}
           {callStatus === "active" && (
             <button onClick={endCall}
-              className="flex items-center gap-2 text-sm bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg transition-colors">
+              className="flex items-center gap-2 text-sm bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400">
               <span className={`w-2 h-2 bg-white rounded-full ${isSpeaking ? "animate-ping" : ""}`} />
               End Call
             </button>
@@ -168,7 +234,7 @@ export default function Home() {
           <button
             onClick={() => sendMessage("I'd like to book a call with Vinay")}
             disabled={loading || bookingStep !== "idle" || callStatus !== "idle"}
-            className="text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 rounded-lg transition-colors">
+            className="text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 rounded-lg transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400">
             {bookingStep !== "idle" ? "Booking…" : "Book a Call"}
           </button>
         </div>
@@ -176,7 +242,7 @@ export default function Home() {
 
       {/* ── Voice Call Overlay ── */}
       {callStatus !== "idle" && (
-        <div className="fixed inset-0 z-50 bg-gray-950 flex flex-col" style={{ top: "65px" }}>
+        <div role="dialog" aria-modal="true" aria-label="Live voice call" className="fixed inset-0 z-50 bg-gray-950 flex flex-col">
           {/* Status bar */}
           <div className="flex items-center justify-between px-6 py-3 border-b border-gray-800 flex-shrink-0">
             <div className="flex items-center gap-3">
@@ -203,7 +269,7 @@ export default function Home() {
           {/* Transcript area */}
           <div className="flex-1 overflow-y-auto px-4 py-6 max-w-2xl mx-auto w-full space-y-3">
             {transcript.length === 0 && callStatus === "active" && (
-              <div className="text-center text-gray-500 text-sm mt-16">
+              <div className="text-center text-gray-400 text-sm mt-16">
                 <div className="flex justify-center gap-1 mb-3">
                   <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce [animation-delay:0ms]" />
                   <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce [animation-delay:150ms]" />
@@ -234,22 +300,22 @@ export default function Home() {
           </div>
 
           {/* Footer hint */}
-          <div className="border-t border-gray-800 px-4 py-3 text-center text-xs text-gray-500 flex-shrink-0">
+          <div className="border-t border-gray-800 px-4 py-3 text-center text-xs text-gray-400 flex-shrink-0">
             Speak naturally · Ask about skills, projects, availability · Say &quot;book a meeting&quot; to schedule
           </div>
         </div>
       )}
 
       {/* ── Chat Interface ── */}
-      <div className="flex flex-1 overflow-hidden" style={{ height: "calc(100vh - 65px)" }}>
-        <div className="flex flex-col flex-1 max-w-3xl mx-auto w-full">
-          <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+      <main className="flex flex-1 min-h-0 overflow-hidden">
+        <div className="flex flex-col flex-1 min-h-0 max-w-3xl mx-auto w-full">
+          <div role="log" aria-live="polite" aria-label="Conversation" className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
             {messages.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                 {msg.role === "assistant" && (
                   <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold mr-2 mt-1 flex-shrink-0">VK</div>
                 )}
-                <div className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                <div className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                   msg.role === "user"
                     ? "bg-blue-600 text-white rounded-br-sm"
                     : "bg-gray-800 text-gray-100 rounded-bl-sm"}`}>
@@ -268,8 +334,8 @@ export default function Home() {
                 </div>
               </div>
             ))}
-            {loading && (
-              <div className="flex justify-start">
+            {loading && messages[messages.length - 1]?.role === "user" && (
+              <div className="flex justify-start" role="status" aria-label="Vinay is typing">
                 <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold mr-2 flex-shrink-0">VK</div>
                 <div className="bg-gray-800 rounded-2xl rounded-bl-sm px-4 py-3">
                   <div className="flex gap-1">
@@ -282,6 +348,10 @@ export default function Home() {
             )}
             <div ref={chatBottomRef} />
           </div>
+
+          {callError && (
+            <p role="alert" className="mx-4 mb-2 rounded-lg bg-red-950 border border-red-800 px-3 py-2 text-sm text-red-200">{callError}</p>
+          )}
 
           {messages.length <= 1 && (
             <div className="px-4 pb-3 flex flex-wrap gap-2">
@@ -296,10 +366,10 @@ export default function Home() {
 
           <div className="border-t border-gray-800 px-4 py-4">
             <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="flex gap-2">
-              <input type="text" value={input} onChange={(e) => setInput(e.target.value)}
+              <input type="text" aria-label="Message" value={input} onChange={(e) => setInput(e.target.value)}
                 ref={inputRef}
                 placeholder="Ask about Vinay's skills, projects, or availability…"
-                className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400"
                 disabled={loading} autoFocus maxLength={1000} />
               <button type="submit" disabled={loading || !input.trim()}
                 className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed px-5 py-3 rounded-xl transition-colors text-sm font-medium">
@@ -308,7 +378,7 @@ export default function Home() {
             </form>
           </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

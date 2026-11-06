@@ -61,3 +61,22 @@ describe("prompt-injection hardening (SEC-7)", () => {
     expect(guardReply("I'm available weekdays; use the Book a Call button.")).toContain("weekdays");
   });
 });
+
+describe("retrieval query and model settings (RAG-4, RAG-5)", () => {
+  it("short follow-ups are searched together with the previous user question", async () => {
+    const { retrievalQuery } = await import("@/lib/chat");
+    const h = [user("Tell me about your Market Data Publisher"), { role: "assistant" as const, content: "It is a C++ system…" }, user("tell me more")];
+    expect(retrievalQuery(h, "tell me more")).toBe("Tell me about your Market Data Publisher tell me more");
+    expect(retrievalQuery([user("What is your CGPA and where do you study exactly?")], "What is your CGPA and where do you study exactly?")).toBe("What is your CGPA and where do you study exactly?");
+    expect(retrievalQuery([user("hi")], "hi")).toBe("hi"); // nothing earlier to borrow
+  });
+
+  it("calls Groq with a low temperature and the non-deprecated token parameter", async () => {
+    retrieveMock.mockResolvedValue("");
+    await generateRagAnswer([user("hi")], "hi", 321);
+    const arg = groqCreate.mock.calls[0][0];
+    expect(arg.temperature).toBeLessThanOrEqual(0.5);
+    expect(arg.max_completion_tokens).toBe(321);
+    expect(arg.max_tokens).toBeUndefined();
+  });
+});

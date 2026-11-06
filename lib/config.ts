@@ -32,6 +32,8 @@ export const OWNER_GITHUB = "https://github.com/HUN-sp";
 export const OWNER_CALENDAR_ATTENDEE = process.env.OWNER_CALENDAR_EMAIL ?? "chopravinaykumarchopra@gmail.com";
 
 export const GROQ_MODEL = "llama-3.3-70b-versatile";
+/** Low temperature: this is a grounded-answer bot, not a creative writer. Override with GROQ_TEMPERATURE. */
+export const GROQ_TEMPERATURE = Number.isFinite(Number(process.env.GROQ_TEMPERATURE)) && process.env.GROQ_TEMPERATURE ? Number(process.env.GROQ_TEMPERATURE) : 0.3;
 export const MAX_TOKENS_CHAT = 1024;
 export const MAX_TOKENS_MIDFLOW = 512;
 

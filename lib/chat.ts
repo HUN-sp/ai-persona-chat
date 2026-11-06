@@ -3,13 +3,14 @@
 import Groq from "groq-sdk";
 import { retrieve } from "./retriever";
 import { SYSTEM_PROMPT } from "./persona";
-import { GROQ_MODEL, MAX_TOKENS_CHAT } from "./config";
+import { GROQ_MODEL, GROQ_TEMPERATURE, MAX_TOKENS_CHAT } from "./config";
 import type { ChatMessage } from "./chat-input";
 
 let _groqClient: Groq | null = null;
 function getClient(): Groq {
   if (!_groqClient) {
-    _groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
+    // Bounded: a hung upstream must not hold a serverless invocation open.
+    _groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY, timeout: 25_000, maxRetries: 1 });
   }
   return _groqClient;
 }
@@ -39,6 +40,16 @@ export function fenceContext(context: string): string {
 }
 
 /**
+ * What to retrieve for. Short follow-ups ("tell me more", "and the second one?") carry
+ * no topic of their own, so they are searched together with the previous user question.
+ */
+export function retrievalQuery(messages: ChatMessage[], lastMsg: string): string {
+  if (lastMsg.trim().split(/\s+/).length > 4) return lastMsg;
+  const prevUser = [...messages].slice(0, -1).reverse().find((m) => m.role === "user");
+  return prevUser ? `${prevUser.content} ${lastMsg}`.slice(0, 1200) : lastMsg;
+}
+
+/**
  * Generate a RAG-grounded answer using conversation history + retrieved context.
  */
 export async function generateRagAnswer(
@@ -47,7 +58,7 @@ export async function generateRagAnswer(
   maxTokens: number = MAX_TOKENS_CHAT,
 ): Promise<string> {
   // 1. Retrieve relevant context from the RAG index
-  const context = await retrieve(lastMsg, 5);
+  const context = await retrieve(retrievalQuery(messages, lastMsg), 5);
 
   // 2. Build system prompt with RAG context
   const systemPrompt = context
@@ -57,7 +68,8 @@ export async function generateRagAnswer(
   // 3. Send (bounded) conversation history to Groq for memory/context
   const response = await getClient().chat.completions.create({
     model: GROQ_MODEL,
-    max_tokens: maxTokens,
+    max_completion_tokens: maxTokens,
+    temperature: GROQ_TEMPERATURE,
     messages: [{ role: "system", content: systemPrompt }, ...messages],
   });
 

@@ -24,7 +24,10 @@ function getCohereClient(): CohereClient {
 
 // ── Scoring parameters ──────────────────────────────────────────
 
-const SCORE_THRESHOLD = 0.25;  // minimum cosine score (fallback path only)
+// Minimum cosine score for a chunk to be used as context – applied to BOTH tiers
+// (Pinecone and in-memory use the same embeddings/metric, so scores are comparable).
+// Override with RAG_MIN_SCORE to tune without a code change.
+const SCORE_THRESHOLD = Number(process.env.RAG_MIN_SCORE) > 0 ? Number(process.env.RAG_MIN_SCORE) : 0.25;
 const CANDIDATE_K     = 20;    // candidates to rerank
 const PINECONE_CANDIDATE_K = 20; // how many Pinecone results to fetch before reranking
 
@@ -67,18 +70,21 @@ async function rerank(query: string, docs: string[], topK: number): Promise<stri
 
 // ── Tier 1: Pinecone ─────────────────────────────────────────────
 
-async function retrieveViaPinecone(query: string, topK: number): Promise<string> {
+/**
+ * Returns `null` when the Pinecone index returned nothing at all (not populated →
+ * caller falls back to the in-memory index), and `""` when it returned matches but
+ * none were relevant enough (→ no context; do NOT spend a second embed on fallback).
+ */
+async function retrieveViaPinecone(query: string, topK: number): Promise<string | null> {
   const queryVector = await embedQuery(query);
 
   // ANN search in Pinecone (returns pre-ranked by approximate cosine)
   const matches = await queryChunks(queryVector, PINECONE_CANDIDATE_K);
-
-  if (matches.length === 0) return "";
+  if (matches.length === 0) return null;
 
   const docs = matches
-    .filter((m) => m.metadata?.text)
+    .filter((m) => m.score >= SCORE_THRESHOLD && m.metadata?.text)
     .map((m) => m.metadata.text);
-
   if (docs.length === 0) return "";
 
   const reranked = await rerank(query, docs, topK);
@@ -124,9 +130,9 @@ export async function retrieve(query: string, topK = 5): Promise<string> {
     try {
       console.log("[RAG] Using Pinecone retrieval");
       const result = await retrieveViaPinecone(query, topK);
-      if (result) return result;
-      // Empty result = Pinecone index not yet populated — fall through
-      console.warn("[RAG] Pinecone returned no results, falling back to in-memory");
+      if (result !== null) return result; // "" = nothing relevant: legitimately no context
+      // null = Pinecone index not yet populated — fall through
+      console.warn("[RAG] Pinecone index is empty, falling back to in-memory");
     } catch (e) {
       console.error("[RAG] Pinecone retrieval failed, falling back to in-memory:", e);
     }

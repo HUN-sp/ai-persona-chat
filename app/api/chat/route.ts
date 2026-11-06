@@ -1,242 +1,123 @@
 /**
- * Chat API route — thin orchestrator.
+ * Chat API route — thin HTTP orchestrator.
  *
  * Routing is deterministic (zero LLM calls for intent classification).
  * Only the final response generation uses an LLM (Groq).
  *
  * Flow:
- *   1. Parse + validate request
- *   2. classifyIntent() → cancel | booking_start | booking_continue | off_topic | chat
- *   3. Dispatch to the appropriate handler
- *   4. Return JSON response
+ *   1. Rate-limit, read + size-cap the body
+ *   2. Vapi-compat alias (authenticated) → shared handler
+ *   3. Validate messages; rebuild the (untrusted) booking state
+ *   4. classifyIntent() → cancel | booking_start | booking_continue | off_topic | chat
+ *   5. Dispatch to the appropriate handler, return JSON
  */
 
-import Groq from "groq-sdk";
-import { retrieve } from "@/lib/retriever";
 import { classifyIntent, isOffTopic } from "@/lib/router";
-import {
-  handleCancel,
-  handleBookingStart,
-  handleBookingContinue,
-  getBookingReminder,
-} from "@/lib/booking";
-import { SYSTEM_PROMPT } from "@/lib/persona";
-import {
-  GROQ_MODEL,
-  MAX_TOKENS_CHAT,
-  MAX_TOKENS_MIDFLOW,
-  idleState,
-} from "@/lib/config";
-import type { BookingState, BookingStep, ChatResponse } from "@/lib/config";
+import { handleCancel, handleBookingStart, handleBookingContinue, getBookingReminder } from "@/lib/booking";
 import { sanitizeBookingState } from "@/lib/booking-state";
-import { POST as handleVapiPost } from "../vapi/webhook/route";
+import { parseMessages } from "@/lib/chat-input";
+import { generateRagAnswer } from "@/lib/chat";
+import { MAX_TOKENS_MIDFLOW, idleState } from "@/lib/config";
+import type { ChatResponse } from "@/lib/config";
+import { clientIp, json, preflight, readJson } from "@/lib/http";
+import { LIMITS } from "@/lib/limits";
+import { rateLimit } from "@/lib/rate-limit";
+import { handleVapiBody, isVapiPayload, verifyVapiRequest } from "@/lib/vapi";
 
-// ── CORS Helper ──────────────────────────────────────────────────
-function corsResponse(res: Response): Response {
-  const newHeaders = new Headers(res.headers);
-  newHeaders.set("Access-Control-Allow-Origin", "*");
-  newHeaders.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-  newHeaders.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  return new Response(res.body, {
-    status: res.status,
-    statusText: res.statusText,
-    headers: newHeaders,
-  });
+function tooMany(req: Request, retryAfterSec: number) {
+  return json(
+    req,
+    { error: "You're sending messages too quickly. Please wait a moment and try again." },
+    { status: 429, headers: { "Retry-After": String(retryAfterSec) } },
+  );
 }
-
-// ── Groq client (lazy singleton) ────────────────────────────────
-
-let _groqClient: Groq | null = null;
-function getClient(): Groq {
-  if (!_groqClient) {
-    _groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
-  }
-  return _groqClient;
-}
-
-// ── RAG + LLM answer generator ──────────────────────────────────
-
-/**
- * Generate a RAG-grounded answer using conversation history + retrieved context.
- * This is the ONLY place LLM is called for chat — everything else is deterministic.
- */
-async function generateRagAnswer(
-  messages: { role: string; content: string }[],
-  lastMsg: string,
-  maxTokens: number = MAX_TOKENS_CHAT
-): Promise<string> {
-  // 1. Retrieve relevant context from the RAG index
-  const context = await retrieve(lastMsg, 5);
-
-  // 2. Build system prompt with RAG context
-  const systemPrompt = context
-    ? `${SYSTEM_PROMPT}\n\n---\n\nRELEVANT CONTEXT FROM RESUME & GITHUB:\n\n${context}`
-    : SYSTEM_PROMPT;
-
-  // 3. Send full conversation history to Groq for memory/context
-  const formattedMessages = messages.map((m) => ({
-    role: m.role === "user" ? ("user" as const) : ("assistant" as const),
-    content: m.content,
-  }));
-
-  const response = await getClient().chat.completions.create({
-    model: GROQ_MODEL,
-    max_tokens: maxTokens,
-    messages: [{ role: "system", content: systemPrompt }, ...formattedMessages],
-  });
-
-  return response.choices[0]?.message?.content ?? "";
-}
-
-// ── Request parsing ─────────────────────────────────────────────
-
-interface ParsedRequest {
-  messages: { role: string; content: string }[];
-  lastMsg: string;
-  bookingStep: BookingStep;
-  allSlots: BookingState["allSlots"];
-  pendingSlots: BookingState["pendingSlots"];
-  selectedSlot: BookingState["selectedSlot"];
-  slotPage: number;
-}
-
-async function parseRequest(req: Request): Promise<ParsedRequest> {
-  const body = await req.json();
-  const messages = body.messages as { role: string; content: string }[];
-
-  if (!messages || !Array.isArray(messages) || messages.length === 0) {
-    throw new Error("Invalid messages");
-  }
-
-  // Booking state comes from the browser and is untrusted: rebuild it.
-  const state = sanitizeBookingState(body);
-
-  return {
-    messages,
-    lastMsg: messages[messages.length - 1]?.content ?? "",
-    ...state,
-  };
-}
-
-// ── Route handler ───────────────────────────────────────────────
 
 export async function POST(req: Request) {
   try {
-    const reqClone = req.clone();
-    let body: Record<string, any> = {}; // eslint-disable-line @typescript-eslint/no-explicit-any
-    try {
-      body = await req.json();
-    } catch {
-      // ignore
+    const parsedBody = await readJson(req);
+    if (!parsedBody.ok) return json(req, { error: parsedBody.error }, { status: parsedBody.status });
+    const body = parsedBody.body;
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return json(req, { error: "Invalid request" }, { status: 400 });
+    }
+    const ip = clientIp(req);
+
+    // ── Vapi alias: some assistants point their Server URL at /api/chat ──
+    if (isVapiPayload(body)) {
+      if (!verifyVapiRequest(req)) return json(req, { error: "Unauthorized" }, { status: 401 });
+      const rl = rateLimit(`webhook:${ip}`, LIMITS.webhookPerMinute, 60_000);
+      if (!rl.ok) return tooMany(req, rl.retryAfterSec);
+      return json(req, await handleVapiBody(body));
     }
 
-    const isVapi = body && (
-      body.message?.type === "tool-calls" ||
-      body.message?.functionCall ||
-      body.functionCall ||
-      (body.message?.type && body.message.type.startsWith("call-"))
-    );
+    // ── Abuse limits (per IP, per serverless instance) ──
+    const perMin = rateLimit(`chat:min:${ip}`, LIMITS.chatPerMinute, 60_000);
+    if (!perMin.ok) return tooMany(req, perMin.retryAfterSec);
+    const perDay = rateLimit(`chat:day:${ip}`, LIMITS.chatPerDay, 86_400_000);
+    if (!perDay.ok) return tooMany(req, perDay.retryAfterSec);
 
-    if (isVapi) {
-      console.log("[Router] Delegating Vapi webhook call on /api/chat");
-      const vapiResponse = await handleVapiPost(reqClone);
-      return corsResponse(vapiResponse);
-    }
+    const parsed = parseMessages((body as { messages?: unknown }).messages);
+    if (!parsed.ok) return json(req, { error: parsed.error }, { status: 400 });
+    const { messages, lastMsg } = parsed;
 
-    const parsed = await parseRequest(reqClone);
-    const { lastMsg, messages } = parsed;
+    // Booking state comes from the browser and is untrusted: rebuild it.
+    const state = sanitizeBookingState(body);
 
     // ── Deterministic intent classification ──
-    const intent = classifyIntent(lastMsg, parsed.bookingStep);
+    const intent = classifyIntent(lastMsg, state.bookingStep);
 
     switch (intent) {
       // ── CANCEL: exit booking flow ──
-      case "cancel": {
-        return corsResponse(Response.json(handleCancel()));
-      }
+      case "cancel":
+        return json(req, handleCancel());
 
       // ── BOOKING START: fetch slots and begin flow ──
-      case "booking_start": {
-        const result = await handleBookingStart();
-        return corsResponse(Response.json(result));
-      }
+      case "booking_start":
+        return json(req, await handleBookingStart());
 
       // ── BOOKING CONTINUE: advance the state machine ──
       case "booking_continue": {
-        const result = await handleBookingContinue({
-          lastMsg,
-          bookingStep: parsed.bookingStep,
-          allSlots: parsed.allSlots,
-          pendingSlots: parsed.pendingSlots,
-          selectedSlot: parsed.selectedSlot,
-          slotPage: parsed.slotPage,
-        });
+        const result = await handleBookingContinue({ lastMsg, ...state });
 
         // Booking action was handled → return directly
-        if (result.type === "response") {
-          return corsResponse(Response.json(result.data));
-        }
+        if (result.type === "response") return json(req, result.data);
 
         // Message wasn't booking-related → answer via RAG, preserve booking state
-        const { state } = result;
+        const kept = result.state;
 
         // Off-topic during booking → deflect + remind about booking
         if (isOffTopic(lastMsg)) {
-          return corsResponse(Response.json({
+          return json(req, {
             reply:
               "That's outside my scope — I'm focused on my professional background.\n\n---\n" +
-              getBookingReminder(state),
-            ...state,
-          } satisfies ChatResponse));
+              getBookingReminder(kept),
+            ...kept,
+          } satisfies ChatResponse);
         }
 
         // On-topic question during booking → RAG answer + booking reminder
         const answer = await generateRagAnswer(messages, lastMsg, MAX_TOKENS_MIDFLOW);
-        const reminder = getBookingReminder(state);
-        return corsResponse(Response.json({
-          reply: `${answer}\n\n---\n${reminder}`,
-          ...state,
-        } satisfies ChatResponse));
+        return json(req, { reply: `${answer}\n\n---\n${getBookingReminder(kept)}`, ...kept } satisfies ChatResponse);
       }
 
       // ── OFF-TOPIC: warm deflection ──
-      case "off_topic": {
-        return corsResponse(Response.json({
+      case "off_topic":
+        return json(req, {
           reply: "That's a bit outside my lane — I'm Vinay's professional AI representative, so I'm focused on his background, technical work, and availability. What would you like to know about my work?",
           ...idleState(),
-        } satisfies ChatResponse));
-      }
+        } satisfies ChatResponse);
 
       // ── CHAT: RAG-grounded conversation (default) ──
-      case "chat": {
-        const answer = await generateRagAnswer(messages, lastMsg);
-        return corsResponse(Response.json({
-          reply: answer,
-          ...idleState(),
-        } satisfies ChatResponse));
-      }
+      case "chat":
+        return json(req, { reply: await generateRagAnswer(messages, lastMsg), ...idleState() } satisfies ChatResponse);
     }
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error("Chat API error:", msg);
-
-    if (msg === "Invalid messages") {
-      return corsResponse(Response.json({ error: msg }, { status: 400 }));
-    }
-
-    return corsResponse(Response.json({ error: msg }, { status: 500 }));
+    // Log the message only (no request body → no PII); never echo internals to the client.
+    console.error("Chat API error:", error instanceof Error ? error.message : "unknown");
+    return json(req, { error: "Something went wrong on my side. Please try again in a moment." }, { status: 500 });
   }
 }
 
-export function OPTIONS() {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      "Access-Control-Max-Age": "86400",
-    },
-  });
+export function OPTIONS(req: Request) {
+  return preflight(req);
 }
-

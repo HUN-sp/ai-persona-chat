@@ -1,6 +1,8 @@
 import { google } from "googleapis";
 import { OWNER_CALENDAR_ATTENDEE, OWNER_EMAIL, OWNER_NAME } from "./config";
 import { isValidEmail } from "./email";
+import { LIMITS } from "./limits";
+import { rateLimit } from "./rate-limit";
 import {
   BOOKING_TZ,
   DAY_MS,
@@ -101,7 +103,7 @@ export async function getAvailableSlots(maxSlots = 200): Promise<Slot[]> {
 
 // ── Booking ─────────────────────────────────────────────────────
 
-export type BookingCode = "ok" | "invalid_slot" | "slot_taken" | "invalid_input" | "calendar_error";
+export type BookingCode = "ok" | "invalid_slot" | "slot_taken" | "invalid_input" | "calendar_error" | "rate_limited";
 
 export interface BookingOutcome {
   success: boolean;
@@ -155,6 +157,10 @@ export async function createBooking(name: string, email: string, slot: Slot): Pr
   const startMs = Date.parse(slot?.start ?? "");
   if (!isValidSlotStart(startMs)) {
     return fail("invalid_slot", "That time isn't one of my bookable slots (weekdays, 8:00 AM–6:30 PM IST, within the next 2 weeks).");
+  }
+  // Global cap on events created per hour: stops invite-spam through the owner's Google account.
+  if (!rateLimit("bookings:global", LIMITS.bookingsPerHour, 60 * 60_000).ok) {
+    return fail("rate_limited", `I'm getting a lot of booking requests right now. Please try again later, or email me at ${OWNER_EMAIL}.`);
   }
   const safeName = cleanName(name);
   const { start, end } = toSlot(startMs);

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { calendarState, resetCalendar, FIXED_NOW } from "./helpers/google-mock";
+import { resetRateLimits } from "@/lib/rate-limit";
 import { jsonReq } from "./helpers/route";
 
 vi.mock("googleapis", async () => (await import("./helpers/google-mock")).googleModuleFactory());
@@ -27,6 +28,7 @@ async function call(name: string, args: Record<string, unknown>, id = "tc1") {
 }
 
 beforeEach(() => {
+  resetRateLimits();
   resetCalendar();
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(FIXED_NOW);

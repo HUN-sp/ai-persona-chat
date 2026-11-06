@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { calendarState, resetCalendar, FIXED_NOW } from "./helpers/google-mock";
+import { resetRateLimits } from "@/lib/rate-limit";
 import { jsonReq, groqCreate, groqModuleFactory } from "./helpers/route";
 
 vi.mock("googleapis", async () => (await import("./helpers/google-mock")).googleModuleFactory());
@@ -17,6 +18,7 @@ const at = (date: string, hhmm: string) => {
 };
 
 beforeEach(() => {
+  resetRateLimits();
   resetCalendar();
   groqCreate.mockResolvedValue({ choices: [{ message: { content: "LLM-REPLY" } }] });
   vi.useFakeTimers({ toFake: ["Date"] });

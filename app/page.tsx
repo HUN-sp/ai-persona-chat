@@ -300,7 +300,7 @@ export default function Home() {
                 ref={inputRef}
                 placeholder="Ask about Vinay's skills, projects, or availability…"
                 className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
-                disabled={loading} autoFocus />
+                disabled={loading} autoFocus maxLength={1000} />
               <button type="submit" disabled={loading || !input.trim()}
                 className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed px-5 py-3 rounded-xl transition-colors text-sm font-medium">
                 Send

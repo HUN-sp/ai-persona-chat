@@ -9,17 +9,18 @@
  *   2. Vapi-compat alias (authenticated) → shared handler
  *   3. Validate messages; rebuild the (untrusted) booking state
  *   4. classifyIntent() → cancel | booking_start | booking_continue | off_topic | chat
- *   5. Dispatch to the appropriate handler, return JSON
+ *   5. Dispatch to the appropriate handler: JSON, or SSE (token…done) for LLM answers
+ *      when the client sends `Accept: text/event-stream`
  */
 
 import { classifyIntent, isOffTopic } from "@/lib/router";
 import { handleCancel, handleBookingStart, handleBookingContinue, getBookingReminder } from "@/lib/booking";
 import { sanitizeBookingState } from "@/lib/booking-state";
 import { parseMessages } from "@/lib/chat-input";
-import { generateRagAnswer } from "@/lib/chat";
+import { generateRagAnswer, streamRagAnswer } from "@/lib/chat";
 import { MAX_TOKENS_MIDFLOW, idleState } from "@/lib/config";
 import type { ChatResponse } from "@/lib/config";
-import { clientIp, json, preflight, readJson } from "@/lib/http";
+import { clientIp, json, preflight, readJson, sseResponse, wantsStream } from "@/lib/http";
 import { LIMITS } from "@/lib/limits";
 import { rateLimit } from "@/lib/rate-limit";
 import { handleVapiBody, isVapiPayload, verifyVapiRequest } from "@/lib/vapi";
@@ -96,8 +97,15 @@ export async function POST(req: Request) {
         }
 
         // On-topic question during booking → RAG answer + booking reminder
+        const reminder = `\n\n---\n${getBookingReminder(kept)}`;
+        if (wantsStream(req)) {
+          return sseResponse(req, async (send, signal) => {
+            const answer = await streamRagAnswer(messages, lastMsg, (text) => send({ type: "token", text }), { maxTokens: MAX_TOKENS_MIDFLOW, signal });
+            send({ type: "done", ...kept, reply: `${answer}${reminder}` });
+          });
+        }
         const answer = await generateRagAnswer(messages, lastMsg, MAX_TOKENS_MIDFLOW);
-        return json(req, { reply: `${answer}\n\n---\n${getBookingReminder(kept)}`, ...kept } satisfies ChatResponse);
+        return json(req, { reply: `${answer}${reminder}`, ...kept } satisfies ChatResponse);
       }
 
       // ── OFF-TOPIC: warm deflection ──
@@ -109,6 +117,13 @@ export async function POST(req: Request) {
 
       // ── CHAT: RAG-grounded conversation (default) ──
       case "chat":
+        // Streamed (SSE) when the client asks for it; the JSON path stays for other clients/tests.
+        if (wantsStream(req)) {
+          return sseResponse(req, async (send, signal) => {
+            const answer = await streamRagAnswer(messages, lastMsg, (text) => send({ type: "token", text }), { signal });
+            send({ type: "done", ...idleState(), reply: answer });
+          });
+        }
         return json(req, { reply: await generateRagAnswer(messages, lastMsg), ...idleState() } satisfies ChatResponse);
     }
   } catch (error) {

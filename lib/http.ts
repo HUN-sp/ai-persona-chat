@@ -1,4 +1,5 @@
 import { LIMITS } from "./limits";
+import { sseEncode, type SseEvent } from "./sse";
 
 /**
  * CORS: the UI is same-origin, so no CORS headers are sent by default.
@@ -61,4 +62,50 @@ export async function readJson(req: Request, maxBytes: number = LIMITS.maxBodyBy
   } catch {
     return { ok: false, status: 400, error: "Invalid JSON" };
   }
+}
+
+/** True if the client asked for a streamed (SSE) reply. */
+export function wantsStream(req: Request): boolean {
+  return (req.headers.get("accept") ?? "").includes("text/event-stream");
+}
+
+/**
+ * Stream `producer`'s events as SSE. Anything it throws becomes a generic `error` event
+ * (never the raw upstream message). `signal` aborts when the client disconnects.
+ */
+export function sseResponse(
+  req: Request,
+  producer: (send: (e: SseEvent) => void, signal: AbortSignal) => Promise<void>,
+): Response {
+  const encoder = new TextEncoder();
+  const abort = new AbortController();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (e: SseEvent) => {
+        if (!abort.signal.aborted) controller.enqueue(encoder.encode(sseEncode(e)));
+      };
+      try {
+        await producer(send, abort.signal);
+      } catch (e) {
+        if (!abort.signal.aborted) {
+          console.error("Chat stream error:", e instanceof Error ? e.message : "unknown");
+          send({ type: "error", error: "Something went wrong on my side. Please try again in a moment." });
+        }
+      } finally {
+        try { controller.close(); } catch { /* already closed */ }
+      }
+    },
+    cancel() {
+      abort.abort();
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      ...corsHeaders(req),
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

@@ -18,3 +18,20 @@ export function groqModuleFactory() {
   }
   return { default: Groq };
 }
+
+/** Async-iterable of Groq-style stream chunks from plain text pieces. */
+export function groqStreamOf(pieces: string[]) {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const p of pieces) yield { choices: [{ delta: { content: p } }] };
+      yield { choices: [{ delta: {} }] };
+    },
+  };
+}
+
+/** Read a Response body as SSE events. */
+export async function readSse(res: Response) {
+  const { parseSse } = await import("@/lib/sse");
+  const text = await res.text();
+  return parseSse(text + "\n\n").events;
+}

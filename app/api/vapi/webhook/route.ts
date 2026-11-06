@@ -1,6 +1,7 @@
 import { getAvailableSlots, createBooking } from "@/lib/calendar";
 import { retrieve } from "@/lib/retriever";
 import { OWNER_EMAIL } from "@/lib/config";
+import { normalizeSpokenEmail } from "@/lib/spoken-email";
 import { parseSlotTime, snapToGrid, toSlot } from "@/lib/slots";
 import { selectVoiceSlots, formatSlotsForVoice } from "@/lib/voice";
 
@@ -52,33 +53,9 @@ async function handleToolCall(name: string, parameters: Record<string, string>):
       return "Missing information — I need the caller's full name, email address, and chosen slot time to complete the booking.";
     }
 
-    // Normalise spoken email: "vinay chopra three sixty at gmail dot com" → "vinaychopra360@gmail.com"
-    const WORD_DIGITS: Record<string, string> = {
-      zero:"0", one:"1", two:"2", three:"3", four:"4",
-      five:"5", six:"6", seven:"7", eight:"8", nine:"9",
-      ten:"10", eleven:"11", twelve:"12", thirteen:"13", fourteen:"14",
-      fifteen:"15", sixteen:"16", seventeen:"17", eighteen:"18", nineteen:"19",
-      twenty:"20", thirty:"30", forty:"40", fifty:"50", sixty:"60",
-      seventy:"70", eighty:"80", ninety:"90", hundred:"00",
-    };
-    // Replace spoken number words with digits (e.g. "three sixty" → "360")
-    const emailNormalized = rawEmail
-      .toLowerCase()
-      .replace(/\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\s+(one|two|three|four|five|six|seven|eight|nine)\b/g,
-        (_, tens, ones) => String(parseInt(WORD_DIGITS[tens]) + parseInt(WORD_DIGITS[ones])))
-      .replace(/\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred)\b/g,
-        (w) => WORD_DIGITS[w] ?? w);
-
-    const email = emailNormalized
-      .replace(/\s+dot\s+/g,       ".")
-      .replace(/\s+at\s+/g,        "@")
-      .replace(/\bthe\s+rate\b/g,  "@")
-      .replace(/\s+minus\s+/g,     "")
-      .replace(/\s+/g,             "")
-      .toLowerCase();
-
-    const emailValid = /^[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}$/.test(email);
-    if (!emailValid) {
+    // "vinay chopra three sixty at gmail dot com" → vinaychopra360@gmail.com
+    const email = normalizeSpokenEmail(rawEmail);
+    if (!email) {
       return (
         `The email address wasn't captured correctly — the transcription may have garbled it. ` +
         `Ask the caller to say their email in this format: username, then "at", then domain. ` +

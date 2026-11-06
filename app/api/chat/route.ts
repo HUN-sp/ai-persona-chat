@@ -27,8 +27,8 @@ import {
   MAX_TOKENS_MIDFLOW,
   idleState,
 } from "@/lib/config";
-import type { BookingStep, ChatResponse } from "@/lib/config";
-import type { Slot } from "@/lib/calendar";
+import type { BookingState, BookingStep, ChatResponse } from "@/lib/config";
+import { sanitizeBookingState } from "@/lib/booking-state";
 import { POST as handleVapiPost } from "../vapi/webhook/route";
 
 // ── CORS Helper ──────────────────────────────────────────────────
@@ -94,9 +94,9 @@ interface ParsedRequest {
   messages: { role: string; content: string }[];
   lastMsg: string;
   bookingStep: BookingStep;
-  allSlots: Slot[] | null;
-  pendingSlots: Slot[] | null;
-  selectedSlot: Slot | null;
+  allSlots: BookingState["allSlots"];
+  pendingSlots: BookingState["pendingSlots"];
+  selectedSlot: BookingState["selectedSlot"];
   slotPage: number;
 }
 
@@ -108,14 +108,13 @@ async function parseRequest(req: Request): Promise<ParsedRequest> {
     throw new Error("Invalid messages");
   }
 
+  // Booking state comes from the browser and is untrusted: rebuild it.
+  const state = sanitizeBookingState(body);
+
   return {
     messages,
     lastMsg: messages[messages.length - 1]?.content ?? "",
-    bookingStep: body.bookingStep ?? "idle",
-    allSlots: body.allSlots ?? null,
-    pendingSlots: body.pendingSlots ?? null,
-    selectedSlot: body.selectedSlot ?? null,
-    slotPage: body.slotPage ?? 0,
+    ...state,
   };
 }
 

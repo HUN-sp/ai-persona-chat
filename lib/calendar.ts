@@ -114,7 +114,6 @@ const MAX_NAME_LEN = 80;
 
 function cleanName(name: unknown): string {
   const s = typeof name === "string" ? name : "";
-  // eslint-disable-next-line no-control-regex
   const cleaned = s.replace(/[\u0000-\u001f\u007f<>]/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_NAME_LEN);
   return cleaned || "Guest";
 }

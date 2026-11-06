@@ -11,6 +11,7 @@
  */
 
 import { getAvailableSlots, createBooking, type Slot } from "./calendar";
+import { extractEmail } from "./email";
 import type { BookingStep, BookingState, ChatResponse } from "./config";
 import { OWNER_EMAIL, idleState } from "./config";
 
@@ -260,12 +261,6 @@ function detectSlotChoice(message: string, slots: Slot[]): SlotDetection {
   }
 
   return { type: "not_found" };
-}
-
-/** Extract email from free text */
-function extractEmail(message: string): string | null {
-  const match = message.match(/[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}/);
-  return match ? match[0] : null;
 }
 
 /** Extract name from free text (best-effort) */
@@ -544,9 +539,25 @@ async function handleAwaitingEmail(input: BookingInput): Promise<BookingResult> 
     // Got an email → book the slot
     const name = extractName(lastMsg, email);
     const result = await createBooking(name, email, selectedSlot);
+
+    if (result.success) {
+      return response({ reply: result.message, ...idleState() });
+    }
+
+    // The slot vanished (or was never bookable): show fresh availability.
+    if (result.code === "slot_taken" || result.code === "invalid_slot") {
+      const fresh = await handleBookingStart();
+      return response({ ...fresh, reply: `${result.message}\n\n${fresh.reply}` });
+    }
+
+    // Transient / input problem: keep the selection so the user can retry.
     return response({
       reply: result.message,
-      ...idleState(),
+      bookingStep: "awaiting_email",
+      allSlots,
+      pendingSlots,
+      selectedSlot,
+      slotPage: 0,
     });
   }
 

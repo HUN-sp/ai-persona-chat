@@ -26,6 +26,9 @@ import { LIMITS } from "@/lib/limits";
 import { rateLimit } from "@/lib/rate-limit";
 import { handleVapiBody, isVapiPayload, verifyVapiRequest } from "@/lib/vapi";
 
+// Retrieval (Cohere) + Groq (25 s timeout) can exceed the platform default on a cold start.
+export const maxDuration = 30;
+
 function tooMany(req: Request, retryAfterSec: number) {
   return json(
     req,

@@ -28,6 +28,9 @@ export const OWNER_EMAIL = "vinay.23bcs10174@sst.scaler.com";
 export const OWNER_PHONE = "+91-8822091421";
 export const OWNER_GITHUB = "https://github.com/HUN-sp";
 
+/** Calendar attendee added to every booking (moved to persona config in Phase 4). */
+export const OWNER_CALENDAR_ATTENDEE = process.env.OWNER_CALENDAR_EMAIL ?? "chopravinaykumarchopra@gmail.com";
+
 export const GROQ_MODEL = "llama-3.3-70b-versatile";
 export const MAX_TOKENS_CHAT = 1024;
 export const MAX_TOKENS_MIDFLOW = 512;

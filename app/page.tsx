@@ -254,7 +254,7 @@ export default function Home() {
                     ? "bg-blue-600 text-white rounded-br-sm"
                     : "bg-gray-800 text-gray-100 rounded-bl-sm"}`}>
                   {msg.role === "user" ? msg.content : (
-                    <ReactMarkdown components={{
+                    <ReactMarkdown skipHtml disallowedElements={["img"]} unwrapDisallowed components={{
                       p:      ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
                       ul:     ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
                       ol:     ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
